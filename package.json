@@ -1,0 +1,29 @@
+{
+  "name": "a11y-core-webdriverio",
+  "version": "0.1.0",
+  "description": "WebdriverIO binding for a11y-core -- scan real, live-rendered pages for accessibility issues.",
+  "main": "src/index.js",
+  "types": "src/index.d.ts",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "dependencies": {
+    "a11y-core": "file:../a11y-core"
+  },
+  "peerDependencies": {
+    "webdriverio": ">=8.0.0"
+  },
+  "devDependencies": {
+    "@wdio/cli": "^9.30.0",
+    "@wdio/local-runner": "^9.30.0",
+    "@wdio/mocha-framework": "^9.30.0",
+    "@wdio/spec-reporter": "^9.29.1",
+    "webdriverio": "^9.0.0"
+  },
+  "scripts": {
+    "test": "node --test \"tests/**/*.test.js\"",
+    "example": "node examples/basic-scan.js",
+    "example:e2e": "wdio run examples/wdio.conf.js"
+  }
+}
