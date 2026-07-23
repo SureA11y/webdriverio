@@ -200,7 +200,7 @@ Every occurrence already carries `selector` and (with `.elementRef(true)`, above
 
 ## Relationship to `a11y-core-playwright` and `a11y-core-puppeteer`
 
-This binding's builder API is deliberately the same shape as [`a11y-core-playwright`](../a11y-core-playwright)'s and [`a11y-core-puppeteer`](../a11y-core-puppeteer)'s — same method names, same mutability contract, same result shapes — so the accessibility-gate logic reads almost identically across all three. The state-accumulation half of the builder (`include`/`exclude`/`withTags`/`disableTags`/`withRules`/`disableRules`/`options`/`withCustomRules`/`reportOnly`) was copied near-verbatim; those were fought out and tested once and shouldn't drift between bindings.
+This binding's builder API is deliberately the same shape as [`a11y-core-playwright`](../a11y-core-playwright)'s and [`a11y-core-puppeteer`](../a11y-core-puppeteer)'s — same method names, same mutability contract, same result shapes — so the accessibility-gate logic reads almost identically across all three. The state-accumulation half of the builder (`include`/`exclude`/`withTags`/`disableTags`/`withRules`/`disableRules`/`options`/`withCustomRules`/`reportOnly`) used to be copied near-verbatim across every binding; as of `ROADMAP.md` §8 it's no longer copied at all — `A11yCoreBuilder` here extends `A11yCoreBuilderBase` from [`../a11y-core-binding-base`](../a11y-core-binding-base), the single shared implementation every sibling binding now depends on.
 
 Where it genuinely diverges is WebdriverIO's driver model, and those differences are real, not cosmetic:
 
