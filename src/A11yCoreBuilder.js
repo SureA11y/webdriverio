@@ -15,11 +15,12 @@ const { A11yCoreBuilderBase } = require('@a11y-core/binding-base');
  *   .analyze();
  *
  * `results` is a11y-core's own native result shape (checksResults /
- * rulesResults -- see a11y-core's docs/OUTPUT_SCHEMA.md), not axe-core's
- * violations/passes/incomplete/inapplicable shape. Method names are modeled
- * on axe-core's AxeBuilder for migration ease, but the richer native schema
- * (severity, confidence, occurrences, policy contract, WCAG SC mappings) is
- * kept as-is rather than reshaped to match axe.
+ * rulesResults -- see a11y-core's docs/OUTPUT_SCHEMA.md), not the
+ * violations/passes/incomplete/inapplicable shape used by other tools in
+ * this space. Method names are modeled on common conventions in this space
+ * for migration ease, but the richer native schema (severity, confidence,
+ * occurrences, policy contract, WCAG SC mappings) is kept as-is rather than
+ * reshaped to match.
  *
  * `browser` is the object returned by WebdriverIO's `remote()` (standalone
  * mode) or the global `browser` inside the WDIO testrunner -- it must already
@@ -96,8 +97,8 @@ const { A11yCoreBuilderBase } = require('@a11y-core/binding-base');
  *
  * Register your own rule(s) for just this scan with
  * `.withCustomRules([...])` (a11y-core's `engineOptions.customRules`
- * escape hatch, axe's `configure({ rules })` equivalent -- see
- * a11y-core's docs/ENGINE_OPTIONS.md). Pass a real, live `runInPage`/
+ * escape hatch -- see a11y-core's docs/ENGINE_OPTIONS.md). Pass a real,
+ * live `runInPage`/
  * `applicability` function -- unlike the raw `.options({ customRules })`
  * passthrough, this method converts them to the function-source string
  * a11y-core needs on this side of the browser.execute() serialization

@@ -50,7 +50,7 @@ await browser.deleteSession();
 
 The builder takes `{ browser }` — the object WebdriverIO's `remote()` returns (standalone mode), or the global `browser` the WDIO testrunner injects (see the E2E section). It must already be navigated to and settled at the URL to scan; the class does not navigate for you.
 
-`results` is a11y-core's own native result shape — see [`../a11y-core/docs/OUTPUT_SCHEMA.md`](../a11y-core/docs/OUTPUT_SCHEMA.md) — not axe-core's `violations`/`passes`/`incomplete`/`inapplicable` shape. The builder's *method names* are modeled on axe-core's `AxeBuilder` for migration familiarity; the richer result schema is kept as-is.
+`results` is a11y-core's own native result shape — see [`../a11y-core/docs/OUTPUT_SCHEMA.md`](../a11y-core/docs/OUTPUT_SCHEMA.md) — not the `violations`/`passes`/`incomplete`/`inapplicable` shape used by other popular accessibility testing tools. The builder's *method names* are modeled on common conventions in this space for migration familiarity; the richer result schema is kept as-is.
 
 Also see `examples/basic-scan.js` for a runnable script (`npm run example -- <url>`).
 
@@ -60,7 +60,7 @@ WebdriverIO v9 defaults to the WebDriver **BiDi** protocol. A long-lived session
 
 ### Composing the rule filters
 
-`withTags()`/`disableRules()` above have counterparts: `.withRules([...])` (only run these specific rule IDs) and `.disableTags([...])` (never run rules carrying any of these tags). All four compose the same way axe's `runOnly`/`disableRules` do, with one non-obvious rule worth knowing: a "disable" always wins over a "with" on the same ID/tag (e.g. `.withRules(['a']).disableRules(['a'])` drops `'a'` entirely), and combining `.withRules()` **and** `.withTags()` together requires a rule to satisfy *both* (a11y-core's default `includeMode: 'and'` — see `../a11y-core/docs/ENGINE_OPTIONS.md`), not either one.
+`withTags()`/`disableRules()` above have counterparts: `.withRules([...])` (only run these specific rule IDs) and `.disableTags([...])` (never run rules carrying any of these tags). All four compose the same way similar allow/deny-list options do in other accessibility testing tools, with one non-obvious rule worth knowing: a "disable" always wins over a "with" on the same ID/tag (e.g. `.withRules(['a']).disableRules(['a'])` drops `'a'` entirely), and combining `.withRules()` **and** `.withTags()` together requires a rule to satisfy *both* (a11y-core's default `includeMode: 'and'` — see `../a11y-core/docs/ENGINE_OPTIONS.md`), not either one.
 
 **Create one builder per scan.** `A11yCoreBuilder` is a mutable object with no reset between `.analyze()` calls — `include()`/`exclude()`/`withRules()`/`disableRules()`/`withTags()`/`disableTags()`/`options()`/`withCustomRules()` all push onto or merge into internal state that persists for the instance's lifetime. Calling one of them again before a second `.analyze()` call *accumulates* on top of the first scan's scope rather than replacing it (this is exactly what makes "call `.include()` several times for one scan," above, work — the same accumulation just also applies across separate scans if you reuse an instance). `.reportOnly()`/`.frames()`/`.elementRef()` are the exception: each call replaces the previous value instead of merging with it.
 
@@ -119,7 +119,7 @@ for (const frame of results.frames) {
 
 The mechanics here are genuinely different from those bindings, though, because WebdriverIO's frame model is different. Puppeteer/Playwright expose `page.frames()` — an array of independent `Frame` objects, each with its own `.evaluate()`/`.$()` — so a binding can iterate them freely. WebdriverIO instead has a single **stateful current context**: `browser.switchFrame(iframeElement)` changes which document `browser.execute()`/`browser.$()` run against, and `browser.switchFrame(null)` returns to the top-level frame. There is no array of frame objects. So `.frames(true)` enumerates each context's direct-child `<iframe>` elements with `browser.$$('iframe')`, switches into each, scans the now-current document, and recurses into that frame's own children (re-navigating from the top each time, since element references and BiDi context ids don't reliably survive a context switch). Cross-origin iframes are reached with no extra work — WebdriverIO's automation layer switches into them the same as same-origin ones, exactly like Puppeteer/Playwright's CDP does.
 
-Verified against a real cross-origin page (`https://example.org/` embedded in an unrelated origin) and against a real nested-iframe page (top → child → grandchild) — see `ROADMAP.md` §2c and `tests/builder.test.js`. Default off, so plain `.analyze()` is unaffected unless you opt in. Unlike axe-core (which needs a `postMessage`-based protocol to reach cross-origin iframes, since it's injected as a plain `<script>` subject to the same-origin policy), this needs no `a11y-core` engine support at all.
+Verified against a real cross-origin page (`https://example.org/` embedded in an unrelated origin) and against a real nested-iframe page (top → child → grandchild) — see `ROADMAP.md` §2c and `tests/builder.test.js`. Default off, so plain `.analyze()` is unaffected unless you opt in. Unlike script-injection-based accessibility tools (which need a `postMessage`-based protocol to reach cross-origin iframes, since they're injected as a plain `<script>` subject to the same-origin policy), this needs no `a11y-core` engine support at all.
 
 ### Trimming the result to just violations
 
@@ -158,7 +158,7 @@ Not every occurrence has one target element — a page-wide finding (some `manua
 
 ### Registering a custom rule at runtime
 
-`a11y-core` supports registering additional rules per-scan via `engineOptions.customRules` (axe's `configure({ rules })` equivalent). Use `.withCustomRules()` to register one:
+`a11y-core` supports registering additional rules per-scan via `engineOptions.customRules`. Use `.withCustomRules()` to register one:
 
 ```js
 const results = await new A11yCoreBuilder({ browser })
