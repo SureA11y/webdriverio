@@ -28,7 +28,7 @@
 const assert = require('node:assert');
 const { A11yCoreBuilder, formatFailures } = require('../src/index.js');
 
-describe('accessibility gate (a11y-core-webdriverio)', () => {
+describe('accessibility gate (a11y-labs-webdriverio)', () => {
   it('flags real accessibility issues (unlabeled button, missing alt)', async () => {
     await browser.url('data:text/html,<html><body><img src="logo.png"><button></button></body></html>');
 
@@ -37,8 +37,8 @@ describe('accessibility gate (a11y-core-webdriverio)', () => {
       .analyze();
 
     const failedRuleIds = results.checksResults.map((r) => r.ruleId);
-    expect(failedRuleIds).toContain('a11ycore-img-alt-present');
-    expect(failedRuleIds).toContain('a11ycore-button-name-present');
+    expect(failedRuleIds).toContain('img-alt-present');
+    expect(failedRuleIds).toContain('button-name-present');
   });
 
   it('a well-formed page has no accessibility violations', async () => {
