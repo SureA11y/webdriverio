@@ -28,7 +28,7 @@
 const assert = require('node:assert');
 const { A11yCoreBuilder, formatFailures } = require('../src/index.js');
 
-describe('accessibility gate (a11y-labs-webdriverio)', () => {
+describe('accessibility gate (surea11y-webdriverio)', () => {
   it('flags real accessibility issues (unlabeled button, missing alt)', async () => {
     await browser.url('data:text/html,<html><body><img src="logo.png"><button></button></body></html>');
 

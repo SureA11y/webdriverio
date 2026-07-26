@@ -1,10 +1,10 @@
 'use strict';
 
-const { runa11yCoreInPage } = require('@a11y-labs/core');
-const { A11yCoreBuilderBase } = require('@a11y-labs/binding-base');
+const { runa11yCoreInPage } = require('@surea11y/core');
+const { A11yCoreBuilderBase } = require('@surea11y/binding-base');
 
 /**
- * WebdriverIO binding for a11y-labs -- scans a real, already-rendered page.
+ * WebdriverIO binding for surea11y -- scans a real, already-rendered page.
  *
  * const results = await new A11yCoreBuilder({ browser })
  *   .include('#main')
@@ -14,8 +14,8 @@ const { A11yCoreBuilderBase } = require('@a11y-labs/binding-base');
  *   .options({ contrast: { mode: 'auditorAssist' } })
  *   .analyze();
  *
- * `results` is a11y-labs's own native result shape (checksResults /
- * rulesResults -- see a11y-labs's docs/OUTPUT_SCHEMA.md), not the
+ * `results` is surea11y's own native result shape (checksResults /
+ * rulesResults -- see surea11y's docs/OUTPUT_SCHEMA.md), not the
  * violations/passes/incomplete/inapplicable shape used by other tools in
  * this space. Method names are modeled on common conventions in this space
  * for migration ease, but the richer native schema (severity, confidence,
@@ -27,7 +27,7 @@ const { A11yCoreBuilderBase } = require('@a11y-labs/binding-base');
  * be navigated to and settled at the URL to scan; this class does not
  * navigate for you.
  *
- * Extends `A11yCoreBuilderBase` (from `a11y-labs-binding-base`), which owns
+ * Extends `A11yCoreBuilderBase` (from `surea11y-binding-base`), which owns
  * every method with no driver-specific work at all -- `include()`/
  * `exclude()`/`withTags()`/`disableTags()`/`withRules()`/`disableRules()`/
  * `options()`/`reportOnly()`/`elementRef()`/`frames()`/`withCustomRules()`'s
@@ -36,7 +36,7 @@ const { A11yCoreBuilderBase } = require('@a11y-labs/binding-base');
  * boundary), and `_buildEngineArgs()`. This class adds exactly the parts
  * that are genuinely WebdriverIO-specific: `analyze()`'s injection
  * mechanics, the stateful index-path frame-traversal design below, and
- * `_attachElementRefs()`. See `../a11y-labs-binding-base/README.md` for
+ * `_attachElementRefs()`. See `../surea11y-binding-base/README.md` for
  * what's shared and why.
  *
  * Opt in to scanning every frame on the page (including cross-origin
@@ -67,8 +67,8 @@ const { A11yCoreBuilderBase } = require('@a11y-labs/binding-base');
  * object it always has.
  *
  * By default `analyze()` returns every rule's outcome, including
- * `pass`/`notApplicable` -- a11y-labs's own deliberate "not a
- * violations-only list" design (see a11y-labs's docs/OUTPUT_SCHEMA.md).
+ * `pass`/`notApplicable` -- surea11y's own deliberate "not a
+ * violations-only list" design (see surea11y's docs/OUTPUT_SCHEMA.md).
  * Opt in to a lighter payload with `.reportOnly(['fail', 'cantTell'])`,
  * which post-filters `checksResults` by `outcome` (applied per-frame when
  * combined with `.frames(true)`, since `checksResults` lives at
@@ -96,12 +96,12 @@ const { A11yCoreBuilderBase } = require('@a11y-labs/binding-base');
  * `.screenshot({ path })`). See ../ROADMAP.md §2d and the README.
  *
  * Register your own rule(s) for just this scan with
- * `.withCustomRules([...])` (a11y-labs's `engineOptions.customRules`
- * escape hatch -- see a11y-labs's docs/ENGINE_OPTIONS.md). Pass a real,
+ * `.withCustomRules([...])` (surea11y's `engineOptions.customRules`
+ * escape hatch -- see surea11y's docs/ENGINE_OPTIONS.md). Pass a real,
  * live `runInPage`/
  * `applicability` function -- unlike the raw `.options({ customRules })`
  * passthrough, this method converts them to the function-source string
- * a11y-labs needs on this side of the browser.execute() serialization
+ * surea11y needs on this side of the browser.execute() serialization
  * boundary for you, so you don't have to remember to call .toString()
  * yourself:
  *
@@ -142,8 +142,8 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
   }
 
   /**
-   * Runs the scan and returns a11y-labs's native result object.
-   * @returns {Promise<object>} see a11y-labs's docs/OUTPUT_SCHEMA.md
+   * Runs the scan and returns surea11y's native result object.
+   * @returns {Promise<object>} see surea11y's docs/OUTPUT_SCHEMA.md
    */
   async analyze() {
     const { contextSelector, engineOptions, runOnly } = this._buildEngineArgs();
@@ -158,7 +158,7 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
     // through with no wrapper/eval() trick -- WebdriverIO serializes the
     // function itself. Verified empirically against a real headless Chrome
     // session before trusting it (this project's whole ethos, inherited
-    // from a11y-labs and its sibling bindings, is "verified against a real
+    // from surea11y and its sibling bindings, is "verified against a real
     // run," not "reasoned about").
     //
     // Runs against whatever frame the browser is CURRENTLY switched into --

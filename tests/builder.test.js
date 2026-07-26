@@ -84,7 +84,7 @@ const SECOND_CUSTOM_RULE = {
 
 // Exercises the optional `applicability` field -- also accepted as a live
 // function and converted the same way as runInPage. When applicability
-// returns false, a11y-labs reports 'notApplicable' WITHOUT ever invoking
+// returns false, surea11y reports 'notApplicable' WITHOUT ever invoking
 // runInPage; runInPage here always reports 'pass' so the two outcomes are
 // unambiguous proof of which path ran.
 const CUSTOM_RULE_WITH_APPLICABILITY = {
@@ -98,7 +98,7 @@ const CUSTOM_RULE_WITH_APPLICABILITY = {
   }
 };
 
-test('A11yCoreBuilder.analyze() scans a real page and returns a11y-labs\'s native result shape', async () => {
+test('A11yCoreBuilder.analyze() scans a real page and returns surea11y\'s native result shape', async () => {
   await browser.url('data:text/html,<html><body><img src="x.png"><button></button></body></html>');
 
   const results = await new A11yCoreBuilder({ browser }).analyze();
@@ -228,8 +228,8 @@ test('A11yCoreBuilder: withRules() only runs the given rule IDs', async () => {
 test('A11yCoreBuilder: withRules() and disableRules() combined on the same rule ID -- disableRules wins', async () => {
   await browser.url('data:text/html,<html><body><img src=x.png><button></button></body></html>');
 
-  // a11y-labs applies excludeRuleIds *after* includeRuleIds (see
-  // ../a11y-labs/docs/ENGINE_OPTIONS.md) -- disableRules() should win over
+  // surea11y applies excludeRuleIds *after* includeRuleIds (see
+  // ../surea11y/docs/ENGINE_OPTIONS.md) -- disableRules() should win over
   // withRules() when the same ID appears in both.
   const results = await new A11yCoreBuilder({ browser })
     .withRules(['img-alt-present', 'button-name-present'])
@@ -263,11 +263,11 @@ test('A11yCoreBuilder: withTags() and disableTags() combined on the same tag -- 
   assert.deepStrictEqual(results.checksResults, []);
 });
 
-test('A11yCoreBuilder: withRules() and withTags() combined require BOTH to match (a11y-labs\'s default "and" includeMode)', async () => {
+test('A11yCoreBuilder: withRules() and withTags() combined require BOTH to match (surea11y\'s default "and" includeMode)', async () => {
   await browser.url('data:text/html,<html><body><img src=x.png><button></button></body></html>');
 
-  // a11y-labs's default includeMode is 'and' when both an ID include and a
-  // tag include are given (see ../a11y-labs/docs/ENGINE_OPTIONS.md) -- this
+  // surea11y's default includeMode is 'and' when both an ID include and a
+  // tag include are given (see ../surea11y/docs/ENGINE_OPTIONS.md) -- this
   // binding doesn't expose includeMode, so combining withRules() and
   // withTags() is stricter than either alone, not an OR of the two. Worth
   // locking down since it's non-obvious: img-alt-present doesn't carry
@@ -288,18 +288,18 @@ test('A11yCoreBuilder: options() merges into engineOptions and is actually appli
   const rule = results.checksResults.find((r) => r.ruleId === 'button-name-present');
   assert.ok(rule, 'button-name-present should be present in the result');
   // Each result echoes back the *resolved* engineOptions it actually ran
-  // under (see a11y-labs's docs/OUTPUT_SCHEMA.md), rather than just
+  // under (see surea11y's docs/OUTPUT_SCHEMA.md), rather than just
   // presence, confirms .options() really reached the engine instead of
   // being silently dropped.
   assert.strictEqual(rule.engineOptions.locale, 'fr');
 });
 
-test('A11yCoreBuilder: options({ customRules }) registers a runtime custom rule via a11y-labs\'s engineOptions passthrough', async () => {
+test('A11yCoreBuilder: options({ customRules }) registers a runtime custom rule via surea11y\'s engineOptions passthrough', async () => {
   await browser.url('data:text/html,<html><body><div class="my-widget"></div></body></html>');
 
   // No dedicated builder method for this yet -- .options() already
-  // forwards arbitrary engineOptions, including a11y-labs's customRules
-  // runtime-registration escape hatch (see ../a11y-labs/docs/ENGINE_OPTIONS.md).
+  // forwards arbitrary engineOptions, including surea11y's customRules
+  // runtime-registration escape hatch (see ../surea11y/docs/ENGINE_OPTIONS.md).
   const results = await new A11yCoreBuilder({ browser })
     .options({ customRules: [MY_ORG_CUSTOM_RULE] })
     .analyze();
@@ -681,7 +681,7 @@ test('A11yCoreBuilder: elementRef(true) resolves against each frame\'s own docum
   }
 });
 
-test('A11yCoreBuilder: frames(true) scans a genuinely cross-origin iframe (no a11y-labs engine support needed for this -- see ../ROADMAP.md §2c)', async () => {
+test('A11yCoreBuilder: frames(true) scans a genuinely cross-origin iframe (no surea11y engine support needed for this -- see ../ROADMAP.md §2c)', async () => {
   // example.org is IANA-reserved specifically for use in documentation/
   // testing and is about as stable a real external dependency as exists --
   // this is the exact page used to empirically verify that cross-origin
