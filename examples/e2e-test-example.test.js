@@ -5,7 +5,7 @@
  * A11yCoreBuilder as an accessibility gate inside a real test, not just a
  * standalone script -- see basic-scan.js for that simpler case.
  *
- * Runner choice (see ../ROADMAP.md §6): the WebdriverIO testrunner (`@wdio/cli`
+ * Runner choice: the WebdriverIO testrunner (`@wdio/cli`
  * + mocha), driven by examples/wdio.conf.js. This is the idiomatic way real
  * WebdriverIO suites are written -- specs using the injected global `browser`,
  * describe/it from the framework -- so an E2E example built this way reads as

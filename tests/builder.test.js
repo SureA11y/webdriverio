@@ -12,7 +12,7 @@ const { A11yCoreBuilder } = require('../src/index.js');
 // per test with browser.url(). node:test runs the tests in a single file
 // sequentially, and every test that touches frames leaves the browser back
 // at the top-level context (analyze() switches to null on the way out), so a
-// shared session is safe here. See ../ROADMAP.md §4. The four validation-only
+// shared session is safe here. The four validation-only
 // tests below construct a builder with a fake browser and need no session.
 const CAPS = {
   logLevel: 'error',
@@ -24,7 +24,7 @@ const CAPS = {
     // ~2s into the minutes, then "Couldn't resolve command" drops); classic
     // holds a steady ~150ms/scan with no degradation, and every operation
     // this binding needs (execute, $, $$, switchFrame) is fully supported on
-    // it. See ../ROADMAP.md §2c/§4.
+    // it.
     'wdio:enforceWebDriverClassic': true,
     'goog:chromeOptions': { args: ['--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'] }
   }
@@ -555,7 +555,7 @@ test('A11yCoreBuilder: frames(true) scans a sub-frame and keeps its findings sep
 test('A11yCoreBuilder: frames(true) recurses into nested iframes-within-iframes, flattening every depth into frames[]', async () => {
   // WebdriverIO's $$("iframe") only sees a context's DIRECT children, so
   // reaching a grandchild frame needs real recursion through switchFrame()
-  // (see A11yCoreBuilder._scanChildFrames and ../ROADMAP.md §2c). This is the
+  // (see A11yCoreBuilder._scanChildFrames). This is the
   // WebdriverIO-specific piece with no direct analogue in the sibling
   // bindings' page.frames() (which already returns every frame flat), so it
   // gets its own test. Top -> child (has an <img>) -> grandchild (has an
@@ -681,7 +681,7 @@ test('A11yCoreBuilder: elementRef(true) resolves against each frame\'s own docum
   }
 });
 
-test('A11yCoreBuilder: frames(true) scans a genuinely cross-origin iframe (no surea11y engine support needed for this -- see ../ROADMAP.md §2c)', async () => {
+test('A11yCoreBuilder: frames(true) scans a genuinely cross-origin iframe (no surea11y engine support needed for this)', async () => {
   // example.org is IANA-reserved specifically for use in documentation/
   // testing and is about as stable a real external dependency as exists --
   // this is the exact page used to empirically verify that cross-origin

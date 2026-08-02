@@ -62,7 +62,7 @@ const { A11yCoreBuilderBase } = require('@surea11y/binding-base');
  * way in). Cross-origin iframes are reached with no extra work -- the
  * WebDriver/BiDi automation layer switches into them the same as same-origin
  * ones, exactly like Puppeteer/Playwright's CDP does; verified against a
- * real cross-origin frame (`https://example.org/`). See ../ROADMAP.md §2c.
+ * real cross-origin frame (`https://example.org/`).
  * Default off, so plain .analyze() keeps returning the single native result
  * object it always has.
  *
@@ -93,7 +93,7 @@ const { A11yCoreBuilderBase } = require('@surea11y/binding-base');
  * Puppeteer/Playwright's `occurrence.elementHandle` -- WebdriverIO has no
  * "handle" concept, and its element API differs (`.getProperty('id')` rather
  * than `.evaluate(el => el.id)`, `.saveScreenshot(path)` rather than
- * `.screenshot({ path })`). See ../ROADMAP.md §2d and the README.
+ * `.screenshot({ path })`). See the README.
  *
  * Register your own rule(s) for just this scan with
  * `.withCustomRules([...])` (@surea11y/core's `engineOptions.customRules`
@@ -205,7 +205,7 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
    * That's what makes it protocol-agnostic: WebdriverIO's switchFrame()
    * returns a reusable BiDi context id under the default BiDi protocol but
    * `null` under the classic WebDriver protocol (`wdio:enforceWebDriverClassic`,
-   * which this project's own tests/examples use -- see ../ROADMAP.md §2c/§4),
+   * which this project's own tests/examples use),
    * and `$$('iframe')` element references don't survive a context switch away
    * and back either. The one thing that reliably re-addresses a nested context
    * on both protocols is replaying `switchFrame(null)` then the chain of

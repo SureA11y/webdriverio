@@ -5,7 +5,7 @@
  * (examples/e2e-test-example.test.js). Run: `npm run example:e2e`
  * (i.e. `wdio run examples/wdio.conf.js`).
  *
- * Runner choice (see ../ROADMAP.md §6): unlike the sibling Puppeteer binding,
+ * Runner choice: unlike the sibling Puppeteer binding,
  * which picked plain `node:test` because Puppeteer has no first-party test
  * runner, WebdriverIO DOES ship its own testrunner (`@wdio/cli`) and it is by
  * far how real WebdriverIO suites are written -- a `wdio.conf.js` plus specs
@@ -25,7 +25,7 @@ exports.config = {
     {
       browserName: 'chrome',
       // Classic WebDriver protocol -- steadier than v9's default BiDi for this
-      // execute()-heavy binding; see ../ROADMAP.md §2c/§4.
+      // execute()-heavy binding.
       'wdio:enforceWebDriverClassic': true,
       'goog:chromeOptions': { args: ['--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'] }
     }

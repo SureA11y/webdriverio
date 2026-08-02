@@ -98,7 +98,7 @@ test('formatFailures(): works end-to-end against a real scan\'s checksResults', 
     logLevel: 'error',
     capabilities: {
       browserName: 'chrome',
-      'wdio:enforceWebDriverClassic': true, // see ../ROADMAP.md §2c/§4
+      'wdio:enforceWebDriverClassic': true, // classic WebDriver protocol is steadier than v9's default BiDi here
       'goog:chromeOptions': { args: ['--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'] }
     }
   });

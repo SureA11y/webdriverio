@@ -68,7 +68,7 @@ export interface Occurrence {
    * `WebdriverIO.Element`), not `elementHandle` as in the Puppeteer/Playwright
    * bindings -- WebdriverIO has no "handle" concept. A sub-frame occurrence's
    * element is only usable while the browser is switched into that frame; see
-   * A11yCoreBuilder#elementRef and ../ROADMAP.md §2d.
+   * A11yCoreBuilder#elementRef.
    */
   element?: WebdriverIO.Element | null;
 }

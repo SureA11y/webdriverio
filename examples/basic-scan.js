@@ -24,7 +24,7 @@ async function main() {
     capabilities: {
       browserName: 'chrome',
       // Classic WebDriver protocol -- steadier than v9's default BiDi for
-      // this execute()-heavy workload; see ../ROADMAP.md §2c/§4.
+      // this execute()-heavy workload.
       'wdio:enforceWebDriverClassic': true,
       'goog:chromeOptions': { args: ['--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'] }
     }
