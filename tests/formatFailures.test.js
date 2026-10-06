@@ -115,3 +115,57 @@ test('formatFailures(): works end-to-end against a real scan\'s checksResults', 
     await browser.deleteSession();
   }
 });
+
+test('formatFailures(): given a whole result, adds its scan gaps and the core release; a frames(true) tree is formatted per frame', async () => {
+  const browser = await remote({
+    logLevel: 'error',
+    capabilities: {
+      browserName: 'chrome',
+      'wdio:enforceWebDriverClassic': true,
+      'goog:chromeOptions': { args: ['--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'] }
+    }
+  });
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  try {
+    await browser.url(
+      'data:text/html,<html><body><main><img src="x.png"></main>' +
+      '<iframe srcdoc="%3Cbutton%3E%3C/button%3E"></iframe></body></html>'
+    );
+    await browser.waitUntil(async () => (await browser.$$('iframe')).length === 1, { timeout: 8000 });
+
+    const results = await new A11yCoreBuilder({ browser })
+      .include('main')
+      .include('.sidebar')
+      .frames(true)
+      .analyze();
+
+    // The tree itself is not one result.
+    assert.throws(() => formatFailures(results), TypeError);
+
+    const top = formatFailures(results.topFrame, { outcomes: ['fail'] });
+    const version = require('@surea11y/core/package.json').version;
+    assert.match(top, /img-alt-present \(serious\)/);
+    assert.match(top, /Part of the scan scope was not scanned: no element matched "\.sidebar"\./);
+    assert.ok(top.endsWith(`Scanned with @surea11y/core ${version}.`), top);
+
+    const frame = formatFailures(results.frames[0], { outcomes: ['fail'] });
+    assert.match(frame, /button-name-present/);
+    assert.doesNotMatch(frame, /scan scope/);
+  } finally {
+    console.warn = originalWarn;
+    await browser.deleteSession();
+  }
+});
+
+test('index re-exports the scan-gap, location and engine-error helpers from @surea11y/binding-base', () => {
+  const index = require('../src/index.js');
+  const base = require('@surea11y/binding-base');
+  for (const name of ['getScanGaps', 'formatOccurrenceLocation', 'EngineError', 'ENGINE_ERROR_CODES']) {
+    assert.strictEqual(index[name], base[name], name);
+  }
+  assert.strictEqual(
+    index.formatOccurrenceLocation({ selector: 'p > img', shadowHostSelectors: ['my-gallery'] }),
+    'my-gallery >>> p > img'
+  );
+});

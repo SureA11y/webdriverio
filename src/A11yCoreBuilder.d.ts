@@ -3,150 +3,68 @@
 // not as named module exports) -- see webdriverio's own build/types.d.ts.
 import type {} from 'webdriverio';
 
-// See surea11y's docs/OUTPUT_SCHEMA.md -- this file mirrors that document's
-// shapes exactly (plus the `element` field this binding adds on top when
-// .elementRef(true) is used). Keep in sync with that doc, not the other way
-// around -- it's the source of truth for what the engine actually returns.
+// The result shapes come from @surea11y/core's own types (shipped since
+// 1.9.0 and checked there against real scan results), so they follow the
+// engine instead of a copy here. This file adds what the binding puts on
+// top: the `element` field .elementRef(true) attaches, and the
+// { topFrame, frames } shape of .frames(true). The names below are the ones
+// this file has always exported.
+import type * as Core from '@surea11y/core';
 
-export type Outcome = 'pass' | 'fail' | 'cantTell' | 'notApplicable';
-export type OutcomeNormalized = 'pass' | 'fail' | 'cantTell' | 'inapplicable';
-export type Severity = 'minor' | 'moderate' | 'serious' | 'critical';
-export type Confidence = 'high' | 'medium' | 'low';
-export type RuleType = 'automatic' | 'manual';
-export type Category = 'perceivable' | 'operable' | 'understandable' | 'robust' | null;
+export type Outcome = Core.Outcome;
+export type OutcomeNormalized = Core.OutcomeNormalized;
+export type Severity = Core.Severity;
+export type Confidence = Core.Confidence;
+export type RuleType = Core.RuleType;
+export type Category = Core.RuleMeta['category'];
+/** An open set: core can add a value in a minor release. */
+export type LocaleResolutionReason = Core.LocaleResolution['reason'];
+export type LocaleResolution = Core.LocaleResolution;
+/** `engine.version` is the @surea11y/core release that produced the result (1.10.0 and later). */
+export type EngineInfo = Core.EngineInfo;
+export type RenderingEnvironment = Core.RenderingEnvironment;
+export type NormativeMapping = Core.NormativeMapping;
+export type CheckResultMeta = Core.RuleMeta;
+export type VisibilityFilter = Core.VisibilityFilter;
+/** How close a rule's closest passing measurement came to its threshold (`CheckResult.margin`). */
+export type Margin = Core.Margin;
+/** How the include() scope resolved; `elementCount: 0` means nothing was scanned. */
+export type ContextMatch = Core.ContextMatch;
+export type CompositeResult = Core.CompositeResult;
+export type CompositeResultDetails = Core.CompositeResult['data']['details'];
+export type EngineOptions = Core.EngineOptions;
 
-// The reason set is open: core can add a value in a minor release, so the
-// union stays assignable from any string rather than going stale.
-export type LocaleResolutionReason =
-  | 'ok'
-  | 'primary-subtag'
-  | 'dictionary-not-loaded'
-  | 'unknown-locale'
-  | 'partial-dictionary'
-  | (string & {});
-
-export interface LocaleResolution {
-  requested: string;
-  resolved: string;
-  reason: LocaleResolutionReason;
-}
-
-export interface EngineInfo {
-  tag: string;
-  schemaVersion: string;
-  locale: LocaleResolution;
-}
-
-export interface NormativeMapping {
-  standard: string;
-  version: string;
-  requirement: string;
-  title: string;
-  conformanceLevel: string;
-}
-
-export interface CheckResultMeta {
-  ruleId: string;
-  ruleInterfaceVersion: string;
-  ruleVersion: string;
-  normative: boolean;
-  atomic: boolean;
-  category: Category;
-  normativeMappings: NormativeMapping[];
-  standard: string | null;
-  applicability: string;
-  expectation: string;
-  references: string[];
-  requirements: Record<string, unknown> | null;
-  mappings: Record<string, unknown> | null;
-}
-
-export interface VisibilityFilter {
-  targetSet: string;
-  accEligible: boolean | null;
-  reasons: string[];
-}
-
-export interface Occurrence {
-  selector: string;
-  html: string;
-  structuralPath: number[] | null;
-  summary: string;
-  hint: string;
-  i18n: { summaryKey: string; hintKey: string; params: Record<string, unknown> } | null;
-  data: {
-    visibilityFilter?: VisibilityFilter;
-    details?: Record<string, unknown>;
-  };
+/**
+ * An occurrence as @surea11y/core reports it. One inside a shadow tree
+ * carries `shadowHostSelectors` and a `structuralPath` of null; its
+ * `selector` holds only inside the last host's shadow root.
+ */
+export interface Occurrence extends Core.Occurrence {
   /**
    * Only present when `.elementRef(true)` was used. `null` when this
-   * occurrence has no single resolvable target element (e.g. `selector` was
-   * `""`) -- see A11yCoreBuilder#elementRef. Named `element` (a
-   * `WebdriverIO.Element`), not `elementHandle` as in the Puppeteer/Playwright
-   * bindings -- WebdriverIO has no "handle" concept. A sub-frame occurrence's
-   * element is only usable while the browser is switched into that frame; see
-   * A11yCoreBuilder#elementRef.
+   * occurrence has no single target element (`selector` is `""`) or no
+   * element matches it any more -- see A11yCoreBuilder#elementRef. Found
+   * through `shadowHostSelectors` for an element in a shadow tree. Named
+   * `element` (a `WebdriverIO.Element`), not `elementHandle` as in the
+   * Puppeteer/Playwright bindings -- WebdriverIO has no "handle" concept. A
+   * sub-frame occurrence's element is only usable while the browser is
+   * switched into that frame.
    */
   element?: WebdriverIO.Element | null;
 }
 
-export interface CheckResult {
-  ruleId: string;
-  outcome: Outcome;
-  outcomeNormalized: OutcomeNormalized;
-  severity: Severity;
-  confidence: Confidence;
-  type: RuleType;
+export interface CheckResult extends Omit<Core.CheckResult, 'occurrences'> {
   occurrences: Occurrence[];
-  title: string;
-  description: string;
-  i18n: { titleKey: string; descriptionKey: string } | null;
-  meta: CheckResultMeta;
-  engineOptions: Record<string, unknown>;
-  schemaVersion: string;
-  /** Present only if the rule threw, or the manual-fail-to-cantTell coercion fired. */
-  error?: string;
 }
 
-export interface CompositeResultDetails {
-  reasonCode: string;
-  checksIds: string[];
-  contributors: Array<{ testId: string; outcome: string; severity: string | null }>;
-  metrics: {
-    failCount: number;
-    cantTellCount: number;
-    notApplicableCount: number;
-    passCount: number;
-    missingCount: number;
-  };
-}
-
-export interface CompositeResult {
-  ruleId: string;
-  outcome: Outcome;
-  severity: Severity;
-  confidence: Confidence;
-  type: RuleType;
-  title: string;
-  description: string;
-  meta: CheckResultMeta;
-  engineOptions: Record<string, unknown>;
-  schemaVersion: string;
-  /** Always empty -- composites are rollups, not element-level findings. */
-  occurrences: [];
-  data: { details: CompositeResultDetails };
-}
-
-/** surea11y's native top-level result shape -- see docs/OUTPUT_SCHEMA.md. */
-export interface A11yCoreResult {
-  engine: EngineInfo;
-  url: string | null;
-  title: string | null;
-  timestamp: string | null;
-  perfStats: Record<string, unknown> | null;
-  contextSelector: string | string[] | null;
+/**
+ * @surea11y/core's native top-level result shape -- see its
+ * docs/OUTPUT_SCHEMA.md. Since 1.10.0 it also says how the include() scope
+ * resolved (`contextMatch`) and which custom rules did not run
+ * (`skippedCustomRules`).
+ */
+export interface A11yCoreResult extends Omit<Core.ScanResult, 'checksResults'> {
   checksResults: CheckResult[];
-  rulesResults: CompositeResult[];
 }
 
 /** A sub-frame that couldn't be scanned (detached, navigated away, or sandboxed). */
@@ -193,7 +111,12 @@ export class A11yCoreBuilder {
    */
   constructor(opts: { browser: WebdriverIO.Browser; url?: string });
 
-  /** Scope the scan to one region. Call multiple times for a multi-region union. */
+  /**
+   * Scope the scan to one region. Call multiple times for a multi-region
+   * union. A selector that matches nothing scans nothing (see
+   * `contextMatch`); with .frames(true) the scope applies to the top frame
+   * only and each sub-frame is scanned whole.
+   */
   include(selector: string): this;
   /**
    * Skip elements matching this selector anywhere in the scanned scope.
@@ -202,7 +125,11 @@ export class A11yCoreBuilder {
    * from other `.exclude(selector)` calls.
    */
   exclude(selector: string, opts?: { rules?: string | string[] }): this;
-  /** Only run rules carrying at least one of these tags. */
+  /**
+   * Only run rules carrying at least one of these tags. Like the three
+   * methods below, throws a TypeError with `code: 'INVALID_RUN_ONLY'` for
+   * anything but a string or an array of strings.
+   */
   withTags(tags: string | string[]): this;
   /** Never run rules carrying any of these tags (applied after withTags). */
   disableTags(tags: string | string[]): this;
@@ -221,16 +148,29 @@ export class A11yCoreBuilder {
   /** Opt in to resolving each fail/cantTell occurrence's selector to a live WebdriverIO.Element. */
   elementRef(enabled?: boolean): this;
 
-  /** Runs the scan. Returns { topFrame, frames } instead of a single result when .frames(true) was used. */
+  /**
+   * Runs the scan. Returns { topFrame, frames } instead of a single result
+   * when .frames(true) was used. Rejects with an `EngineError` (from
+   * `@surea11y/binding-base`, re-exported here) whose `code` is
+   * `INVALID_RUN_ONLY` when a rule or tag list names nothing @surea11y/core
+   * knows, or `INVALID_CONTEXT_SELECTOR` (with `selector`) when an include()
+   * selector does not parse.
+   */
   analyze(): Promise<A11yCoreResult | A11yCoreMultiFrameResult>;
 }
 
 /**
- * Formats a checksResults array into a short, human-readable block -- one
- * entry per occurrence, not per rule. Meant for an assertion library's
- * failure-message parameter, e.g.
- * `assert.strictEqual(results.checksResults.length, 0, formatFailures(results.checksResults))`.
- * Deliberately framework-agnostic -- no dependency on any particular
- * `expect` implementation.
+ * Formats a result, or its checksResults array, into a short, human-readable
+ * block -- one entry per fail/cantTell occurrence, not per rule. Given the
+ * whole result, it also lists what the scan left out (an include() scope
+ * that matched nothing, a custom rule that did not run) and the
+ * @surea11y/core release that produced it. Meant for an assertion
+ * library's failure-message parameter, e.g.
+ * `assert.strictEqual(fails.length, 0, formatFailures(results))`.
+ * Throws a TypeError for anything else, such as a .frames(true) result:
+ * format `topFrame` and each entry of `frames` on its own.
  */
-export function formatFailures(checksResults: CheckResult[], opts?: { outcomes?: Outcome[] }): string;
+export function formatFailures(
+  input: A11yCoreResult | ReadonlyArray<CheckResult>,
+  opts?: { outcomes?: Outcome[] }
+): string;

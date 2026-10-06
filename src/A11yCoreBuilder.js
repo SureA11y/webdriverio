@@ -1,7 +1,19 @@
 'use strict';
 
 const { runa11yCoreInPage } = require('@surea11y/core');
-const { A11yCoreBuilderBase } = require('@surea11y/binding-base');
+const {
+  A11yCoreBuilderBase,
+  createInPageScan,
+  rethrowEngineError,
+  queryOccurrenceElement,
+  getScanGaps
+} = require('@surea11y/binding-base');
+
+// core's runa11yCoreInPage, wrapped so an engine error (INVALID_RUN_ONLY,
+// INVALID_CONTEXT_SELECTOR) keeps its `code` across browser.execute(),
+// which carries only an error's message. Self-contained, so WebdriverIO
+// serializes it exactly as it serialized runa11yCoreInPage.
+const inPageScan = createInPageScan(runa11yCoreInPage);
 
 /**
  * WebdriverIO binding for surea11y -- scans a real, already-rendered page.
@@ -65,6 +77,12 @@ const { A11yCoreBuilderBase } = require('@surea11y/binding-base');
  * real cross-origin frame (`https://example.org/`).
  * Default off, so plain .analyze() keeps returning the single native result
  * object it always has.
+ *
+ * An include() scope applies to the top frame only: each sub-frame is
+ * scanned whole (contextSelector null), as @surea11y/core's own
+ * runa11yCoreAcrossFrames does. Since core 1.10.0 a selector that matches
+ * nothing scans nothing, so passing the top frame's scope down would leave
+ * every frame that lacks it unscanned.
  *
  * By default `analyze()` returns every rule's outcome, including
  * `pass`/`notApplicable` -- @surea11y/core's own deliberate "not a
@@ -147,6 +165,11 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
    */
   async analyze() {
     const { contextSelector, engineOptions, runOnly } = this._buildEngineArgs();
+    if (this._scanFrames) {
+      // Make sure we start from the top-level frame, whatever context the
+      // caller happened to leave the browser in.
+      await this._browser.switchFrame(null);
+    }
 
     // Unlike Playwright's page.evaluate(fn, arg), which only accepts a
     // SINGLE argument (forcing a hand-built single-arg wrapper there),
@@ -154,10 +177,10 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
     // execute<ReturnValue, InnerArguments extends unknown[]>(script, ...args)
     // (confirmed against a real webdriverio 9.x install's own
     // build/commands/browser/execute.d.ts). Like Puppeteer, that means
-    // runa11yCoreInPage's own 4 positional args can be passed straight
-    // through with no wrapper/eval() trick -- WebdriverIO serializes the
-    // function itself. Verified empirically against a real headless Chrome
-    // session before trusting it (this project's whole ethos, inherited
+    // the scan's 4 positional args can be passed straight through with no
+    // single-arg wrapper -- WebdriverIO serializes the function itself.
+    // Verified empirically against a real headless Chrome session before
+    // trusting it (this project's whole ethos, inherited
     // from surea11y and its sibling bindings, is "verified against a real
     // run," not "reasoned about").
     //
@@ -165,23 +188,31 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
     // WebdriverIO's execute()/$ target the current context, a stateful model
     // unlike Puppeteer/Playwright's per-frame-object one. `.frames(true)`
     // orchestrates the switching (see _scanChildFrames).
-    const scanCurrent = async () => {
+    //
+    // inPageScan takes the same four arguments as runa11yCoreInPage; an
+    // engine error comes back as a plain object, which rethrowEngineError()
+    // throws again here as an EngineError with its `code`.
+    const scanCurrent = async (scope) => {
       const frameUrl = this._url || (await this._browser.execute(() => document.location.href));
-      const result = await this._browser.execute(runa11yCoreInPage, frameUrl, contextSelector, engineOptions, runOnly);
+      const result = rethrowEngineError(
+        await this._browser.execute(inPageScan, frameUrl, scope, engineOptions, runOnly)
+      );
+      this._warnScanGaps(result);
       return this._elementRef ? this._attachElementRefs(result) : result;
     };
 
     if (!this._scanFrames) {
-      return this._applyReportOnly(await scanCurrent());
+      return this._applyReportOnly(await scanCurrent(contextSelector));
     }
 
-    // Make sure we start from the top-level frame, whatever context the
-    // caller happened to leave the browser in.
-    await this._browser.switchFrame(null);
-    const topFrame = this._applyReportOnly(await scanCurrent());
+    // The top frame is scanned first, so an INVALID_RUN_ONLY or
+    // INVALID_CONTEXT_SELECTOR error is thrown from it, before any sub-frame.
+    const topFrame = this._applyReportOnly(await scanCurrent(contextSelector));
 
+    // Sub-frames are scanned whole: the include() scope belongs to the top
+    // frame's document (see the class comment).
     const frames = [];
-    await this._scanChildFrames([], scanCurrent, frames);
+    await this._scanChildFrames([], () => scanCurrent(null), frames);
 
     // Leave the browser back at the top-level frame regardless of how the
     // traversal ended, so a caller's next command isn't silently running in
@@ -264,24 +295,55 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
   }
 
   /**
-   * Resolves occurrence.selector to a live WebdriverIO.Element for every
-   * fail/cantTell occurrence, scoped to whatever frame the browser is
-   * currently switched into (browser.$ is stateful on the current context).
-   * Mutates and returns the same result object -- it's a fresh object from
-   * this scan, not shared external state.
+   * Prints what the scan left out (getScanGaps(): an include() scope that
+   * matched nothing, a custom rule that did not run) with console.warn.
+   * @surea11y/core warns about these too, but in the page's console, which a
+   * WebdriverIO run does not show; a result whose checksResults alone look
+   * clean would otherwise pass without a word.
+   */
+  _warnScanGaps(result) {
+    let gaps;
+    try {
+      gaps = getScanGaps(result);
+    } catch (e) {
+      return; // not a scan result; the caller sees it as it is
+    }
+    const where = result.url ? ` (${result.url})` : '';
+    for (const gap of gaps) {
+      console.warn(`@surea11y/webdriverio${where}: ${gap.message}`);
+    }
+  }
+
+  /**
+   * Resolves each occurrence to a live WebdriverIO.Element, scoped to
+   * whatever frame the browser is currently switched into (execute() is
+   * stateful on the current context). Mutates and returns the same result
+   * object -- it's a fresh object from this scan, not shared external state.
+   *
+   * The lookup runs in the page through binding-base's
+   * queryOccurrenceElement(), which follows `shadowHostSelectors` (core
+   * 1.10.0 and later): an occurrence inside a shadow tree has a `selector`
+   * that holds only inside its shadow root, so browser.$(selector) found
+   * another element or none. The element reference execute() returns is
+   * wrapped with browser.$(), which makes no further WebDriver call.
+   * `element` is null when the occurrence has no selector (a page-wide
+   * finding can carry "") or nothing matches it any more.
    */
   async _attachElementRefs(result) {
     if (!Array.isArray(result.checksResults)) return result;
     for (const check of result.checksResults) {
       if (!Array.isArray(check.occurrences) || !check.occurrences.length) continue;
       for (const occurrence of check.occurrences) {
-        // Most occurrences carry a concrete element selector, but a page-wide
-        // finding with no single target element (e.g. some `manual`/cantTell
-        // rules) can carry "" -- leave `element` null rather than passing ""
-        // to browser.$(), which throws ("invalid selector: No selector
-        // specified") on WebdriverIO, unlike Puppeteer/Playwright's .$("")
-        // which resolves to null. Verified against a real run.
-        occurrence.element = occurrence.selector ? await this._browser.$(occurrence.selector) : null;
+        if (!occurrence.selector) {
+          occurrence.element = null;
+          continue;
+        }
+        const ref = await this._browser.execute(
+          queryOccurrenceElement,
+          occurrence.selector,
+          occurrence.shadowHostSelectors || null
+        );
+        occurrence.element = ref ? await this._browser.$(ref) : null;
       }
     }
     return result;
