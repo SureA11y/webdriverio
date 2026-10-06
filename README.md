@@ -34,6 +34,7 @@ const results = await new A11yCoreBuilder({ browser })
   .analyze();
 
 console.log(results.checksResults.filter(r => r.outcome === 'fail'));
+console.log(results.engine.version); // the @surea11y/core release that scanned, e.g. "1.10.0"
 await browser.deleteSession();
 ```
 
@@ -51,6 +52,10 @@ WebdriverIO v9 defaults to the WebDriver **BiDi** protocol. A long-lived session
 
 `withTags()`/`disableRules()` above have counterparts: `.withRules([...])` (only run these specific rule IDs) and `.disableTags([...])` (never run rules carrying any of these tags). All four compose the same way similar allow/deny-list options do in other accessibility testing tools, with one non-obvious rule worth knowing: a "disable" always wins over a "with" on the same ID/tag (e.g. `.withRules(['a']).disableRules(['a'])` drops `'a'` entirely), and combining `.withRules()` **and** `.withTags()` together requires a rule to satisfy *both* (`@surea11y/core`'s default `includeMode: 'and'`), not either one.
 
+A rule or tag list that names nothing `@surea11y/core` knows makes `analyze()` reject with `code: 'INVALID_RUN_ONLY'` (see [When a scan can't run as asked](#when-a-scan-cant-run-as-asked)), so a typo such as `.withTags(['wcag2.2aa'])` can't run no rule at all and pass. An unknown name beside known ones is ignored, with a warning in the page's console. The four methods also throw a `TypeError` with the same `code` straight away for anything but a string or an array of strings, such as `undefined` from a missing config value.
+
+Rule IDs change rarely, but core 1.10.0 changed two: `label-title-only` is deprecated (it reports `notApplicable`; every field it flagged, `form-control-programmatic-label-quality` flags too) and keeps resolving until 2.0.0, so a `.disableRules(['label-title-only'])` still works but no longer does anything; and `landmark-role-name-present` is new, a `best-practice` rule that asks about an element with `role="region"` or `role="form"` and no accessible name.
+
 `.exclude(selector)` above excludes globally. Pass a second argument to scope it to specific rule IDs instead: `.exclude('.mat-select', { rules: ['aria-required-children'] })` skips `.mat-select` for that rule only — every other rule still sees it. Global and rule-scoped `.exclude()` calls compose freely.
 
 **Create one builder per scan.** `A11yCoreBuilder` is a mutable object with no reset between `.analyze()` calls — `include()`/`exclude()`/`withRules()`/`disableRules()`/`withTags()`/`disableTags()`/`options()`/`withCustomRules()` all push onto or merge into internal state that persists for the instance's lifetime. Calling one of them again before a second `.analyze()` call *accumulates* on top of the first scan's scope rather than replacing it (this is exactly what makes "call `.include()` several times for one scan," above, work — the same accumulation just also applies across separate scans if you reuse an instance). `.reportOnly()`/`.frames()`/`.elementRef()` are the exception: each call replaces the previous value instead of merging with it.
@@ -63,7 +68,7 @@ The pattern above works unchanged inside a real WebdriverIO testrunner spec, whi
 
 ```js
 const assert = require('node:assert');
-const { A11yCoreBuilder, formatFailures } = require('@surea11y/webdriverio');
+const { A11yCoreBuilder, formatFailures, getScanGaps } = require('@surea11y/webdriverio');
 
 describe('accessibility gate', () => {
   it('has no accessibility violations', async () => {
@@ -71,7 +76,10 @@ describe('accessibility gate', () => {
 
     const results = await new A11yCoreBuilder({ browser }).reportOnly(['fail']).analyze();
 
-    assert.strictEqual(results.checksResults.length, 0, formatFailures(results.checksResults));
+    assert.strictEqual(results.checksResults.length, 0, formatFailures(results));
+    // An include() scope that matched nothing, or a custom rule that did not
+    // run, leaves no failure behind: check for them too.
+    assert.deepStrictEqual(getScanGaps(results), [], formatFailures(results));
   });
 });
 ```
@@ -82,18 +90,22 @@ Note the gate above uses `node:assert`, not WebdriverIO's bundled `expect`: Webd
 
 ### Readable console/CI output on failure
 
-A bare length/equality assertion alone gets you a *working* gate, but the failure message is a raw, deeply-nested object diff — hundreds of lines for a handful of violations. `formatFailures(checksResults)` turns that into a short, scannable block (one entry per occurrence, numbered, with rule ID/severity/selector/hint) that you hand to your assertion library's own failure-message parameter, as above. A real failure then prints:
+A bare length/equality assertion alone gets you a *working* gate, but the failure message is a raw, deeply-nested object diff — hundreds of lines for a handful of violations. `formatFailures(results)` turns that into a short, scannable block (one entry per occurrence, numbered, with rule ID/severity/location/hint) that you hand to your assertion library's own failure-message parameter, as above. Given the whole result, it also says what the scan left out and which `@surea11y/core` release ran it. A real failure then prints:
 
 ```
 1) button-name-present (serious): This button has no accessible name.
    at html > body > button
    Provide visible button text or a programmatic accessible-name mechanism (for example aria-label) so assistive technologies can identify the button.
 2) img-alt-present (serious): Missing alt attribute on <img>.
-   at html > body > img
+   at #host >>> p > img
    Add an alt attribute (use alt="" only for decorative images).
+
+Scanned with @surea11y/core 1.10.0.
 ```
 
-Deliberately a plain function, not a custom matcher — no dependency on any particular assertion library, so it works the same with `node:assert`, WebdriverIO's `expect`, Jest, Vitest, or a hand-rolled `if`/`throw`. Defaults to `fail`/`cantTell` outcomes (the only two that ever carry occurrences); pass `{ outcomes: [...] }` to narrow further. A thrown rule (`occurrences: []`, `error` set) is still surfaced using its `error` message rather than silently dropped.
+An element inside a shadow tree is located as `host >>> selector` (the second entry above); `formatOccurrenceLocation(occurrence)` gives the same text if you print occurrences yourself. `formatFailures(results.checksResults)` still works and prints only the entries. A `.frames(true)` result is not one result, so `formatFailures()` throws a `TypeError` for it: format `results.topFrame` and each entry of `results.frames` on its own.
+
+Deliberately a plain function, not a custom matcher — no dependency on any particular assertion library, so it works the same with `node:assert`, WebdriverIO's `expect`, Jest, Vitest, or a hand-rolled `if`/`throw`. Defaults to `fail`/`cantTell` outcomes (the only two whose occurrences are findings: a `notApplicable` rule may carry one occurrence saying why it had nothing to judge); pass `{ outcomes: [...] }` to narrow further. A thrown rule (`occurrences: []`, `error` set) is still surfaced using its `error` message rather than silently dropped.
 
 ### Scanning every frame, including cross-origin and nested iframes
 
@@ -109,6 +121,8 @@ for (const frame of results.frames) {
 `results.frames` is a **flat array**, one entry per sub-frame at any depth (nested iframes-within-iframes included), matching the shape the Puppeteer/Playwright bindings return.
 
 The mechanics here are genuinely different from those bindings, though, because WebdriverIO's frame model is different. Puppeteer/Playwright expose `page.frames()` — an array of independent `Frame` objects, each with its own `.evaluate()`/`.$()` — so a binding can iterate them freely. WebdriverIO instead has a single **stateful current context**: `browser.switchFrame(iframeElement)` changes which document `browser.execute()`/`browser.$()` run against, and `browser.switchFrame(null)` returns to the top-level frame. There is no array of frame objects. So `.frames(true)` enumerates each context's direct-child `<iframe>` elements with `browser.$$('iframe')`, switches into each, scans the now-current document, and recurses into that frame's own children (re-navigating from the top each time, since element references and BiDi context ids don't reliably survive a context switch). Cross-origin iframes are reached with no extra work — WebdriverIO's automation layer switches into them the same as same-origin ones, exactly like Puppeteer/Playwright's CDP does.
+
+**`.include()` scopes the top frame only.** Each sub-frame is scanned whole, as `@surea11y/core`'s own `runa11yCoreAcrossFrames` does: the selectors belong to the top document, and since core 1.10.0 a selector that matches nothing scans nothing, so passing them down would leave every frame without them unscanned. `.exclude()` and the rule filters apply in every frame. An `INVALID_RUN_ONLY` or `INVALID_CONTEXT_SELECTOR` error rejects `analyze()` from the top frame, before any sub-frame is scanned; a sub-frame that fails for another reason is listed in `results.frames` as `{ url, error }`.
 
 Verified against a real cross-origin page (`https://example.org/` embedded in an unrelated origin) and against a real nested-iframe page (top → child → grandchild) — see `tests/builder.test.js`. Default off, so plain `.analyze()` is unaffected unless you opt in. Unlike script-injection-based accessibility tools (which need a `postMessage`-based protocol to reach cross-origin iframes, since they're injected as a plain `<script>` subject to the same-origin policy), this needs no extra `@surea11y/core` engine support at all.
 
@@ -138,14 +152,14 @@ await failing.occurrences[0].element.saveScreenshot('./flagged.png');
 await failing.occurrences[0].element.click();
 ```
 
-This resolves `occurrence.selector` to a `WebdriverIO.Element` (via `browser.$()`) and attaches it as **`occurrence.element`** — instead of leaving you to re-resolve a possibly-stale selector string yourself. Default off — resolving an element per occurrence is a real page query per occurrence, so it costs more than a plain `.analyze()`.
+This finds each occurrence's element in the page and attaches it as **`occurrence.element`** — instead of leaving you to re-resolve a possibly-stale selector string yourself. An element inside a shadow tree is found through its `shadowHostSelectors` (see below), where `browser.$(occurrence.selector)` would find another element or none. `element` is `null` when nothing matches any more. Default off — resolving an element per occurrence is a real page query per occurrence, so it costs more than a plain `.analyze()`.
 
 Two WebdriverIO-specific differences from the sibling bindings' `.elementRef(true)`, both real and worth knowing:
 
 - **The field is `occurrence.element`, not `occurrence.elementHandle`.** WebdriverIO has no "handle" concept — `browser.$()` returns a `WebdriverIO.Element`. Its API differs too: read a property with `.getProperty('id')` (not Puppeteer's `.evaluate(el => el.id)`), screenshot with `.saveScreenshot(path)` (not `.screenshot({ path })`). See the [WebdriverIO element API](https://webdriver.io/docs/api/element).
 - **A sub-frame element is only usable while switched into its frame.** WebdriverIO element references are bound to whichever frame was the current context when they were resolved. When you combine `.frames(true).elementRef(true)`, a *sub-frame* occurrence's `element` is resolved against that frame's own document (correct), but after `analyze()` returns the browser is back at the top-level frame — so to act on a sub-frame element you must `browser.switchFrame()` back into its frame first (`browser.switchFrame((await browser.$$('iframe'))[i])`). Top-frame occurrences have no such caveat. This is a direct consequence of WebdriverIO's stateful context model and has no analogue in Puppeteer/Playwright, whose handles are bound to an execution context, not a mutable "current frame."
 
-Not every occurrence has one target element — a page-wide finding (some `manual`/`cantTell` rules) can carry `selector: ""`, in which case `occurrence.element` is `null` rather than an element. (WebdriverIO's `browser.$('')` actually *throws* `invalid selector: No selector specified`, unlike Puppeteer/Playwright's `.$('')` which resolves to `null` — so the empty-selector guard that produces this `null` matters even more here; verified with a real run.)
+Not every occurrence has one target element — a page-wide finding (some `manual`/`cantTell` rules) can carry `selector: ""`, in which case `occurrence.element` is `null` rather than an element.
 
 ### Registering a custom rule at runtime
 
@@ -179,15 +193,44 @@ const results = await new A11yCoreBuilder({ browser })
 
 **Why `.withCustomRules()` instead of the raw `.options({ customRules })` passthrough** (still supported, and composes with this method if you use both): `runInPage`/`applicability` must reach the page as a function-source *string*, not a live `Function` — a WebdriverIO `browser.execute()` argument crosses a serialization boundary that can't carry a live function reference, only a string `@surea11y/core` can reconstruct with `new Function` on the page side. Passing a raw live function via `.options()` directly would silently fail to serialize; `.withCustomRules()` calls `.toString()` on a live function for you (patching the ES6 method-shorthand `.toString()` quirk automatically), so you can write a normal function and not have to remember that constraint yourself. A string is still accepted as-is if you already have one.
 
-Invalid input (a missing/empty `id`, or a `runInPage`/`applicability` that's neither a function nor a non-empty string) throws immediately from `.withCustomRules()` itself, rather than surfacing later as a silently-skipped rule deep inside the page — easier to catch during development. (Note: a *raw* `.options({ customRules })` call bypasses this check entirely and defers to `@surea11y/core`'s own engine-side behavior, which silently skips an invalid descriptor rather than throwing.)
+Invalid input (a missing/empty `id`, or a `runInPage`/`applicability` that's neither a function nor a non-empty string) throws immediately from `.withCustomRules()` itself, rather than surfacing later as a skipped rule deep inside the page — easier to catch during development. (Note: a *raw* `.options({ customRules })` call bypasses this check entirely and defers to `@surea11y/core`'s own engine-side behavior, which skips an invalid descriptor rather than throwing. The result lists each skipped rule in `skippedCustomRules`, and `analyze()` warns about it — see below.)
+
+### When a scan can't run as asked
+
+`analyze()` rejects with an `EngineError` (exported, along with `ENGINE_ERROR_CODES`) when `@surea11y/core` can't use what it was given. Its `code` says why:
+
+- `INVALID_RUN_ONLY`: none of the rule IDs, or none of the tags, given to `.withRules()`/`.withTags()` is one the engine knows.
+- `INVALID_CONTEXT_SELECTOR`: an `.include()` selector is not valid CSS; `error.selector` names it.
+
+```js
+const { A11yCoreBuilder, EngineError } = require('@surea11y/webdriverio');
+
+try {
+  await new A11yCoreBuilder({ browser }).withTags(['wcag2.2aa']).analyze();
+} catch (e) {
+  if (e instanceof EngineError && e.code === 'INVALID_RUN_ONLY') {
+    // a typo in the tag list, not a broken page
+  }
+  throw e;
+}
+```
+
+Two other cases don't throw but leave part of the page unchecked, so a result that reports nothing failing is not a clean page:
+
+- **An `.include()` selector that matches nothing.** Since core 1.10.0 nothing is then scanned (it used to fall back to the whole page): every rule reports `notApplicable`, and `results.contextMatch` is `{ elementCount: 0, unmatchedSelectors: [...] }`. With several selectors, one that matches nothing is named there while the others are scanned.
+- **A custom rule that did not run**, listed with its reason in `results.skippedCustomRules`.
+
+`analyze()` prints each of these with `console.warn`, and `getScanGaps(results)` returns them as `[{ kind, message, ... }]` (`kind` is `context-not-found`, `context-partly-not-found` or `custom-rule-skipped`), so a gate can fail on them, as the E2E example above does. `formatFailures(results)` lists them too.
 
 ### Element addressing beyond a CSS selector
 
-Every occurrence already carries `selector` and (with `.elementRef(true)`, above) a live `element`. It also carries `structuralPath` — a sibling-index path from the document root down to the flagged element (e.g. `[1, 0, 2]`) — a more robust identity than a selector string alone, since it survives some DOM changes a selector wouldn't (an id/class rename, for instance). No opt-in needed; it's already on every `fail`/`cantTell` occurrence today. See [`OUTPUT_SCHEMA.md`](https://github.com/SureA11y/core/blob/main/docs/OUTPUT_SCHEMA.md) for the full field description.
+Every occurrence already carries `selector` and (with `.elementRef(true)`, above) a live `element`. It also carries `structuralPath` — a sibling-index path from the document root down to the flagged element (e.g. `[1, 0, 2]`) — a more robust identity than a selector string alone, since it survives some DOM changes a selector wouldn't (an id/class rename, for instance). No opt-in needed; it's already on every `fail`/`cantTell` occurrence today.
+
+An element inside a shadow tree is different: its `selector` holds only inside its shadow root, its `shadowHostSelectors` lists the shadow hosts that lead to it (outermost first), and its `structuralPath` is `null`. `formatOccurrenceLocation(occurrence)` joins them as `host >>> selector` for display. See [`OUTPUT_SCHEMA.md`](https://github.com/SureA11y/core/blob/main/docs/OUTPUT_SCHEMA.md) for the full field description.
 
 ## TypeScript
 
-`src/A11yCoreBuilder.d.ts` (re-exported from `src/index.d.ts`, wired up via `package.json`'s `types` field) ships hand-written types for the whole builder API plus `@surea11y/core`'s native result shapes (`A11yCoreResult`, `CheckResult`, `Occurrence`, `CompositeResult`, etc.). `analyze()` is typed `Promise<A11yCoreResult | A11yCoreMultiFrameResult>` — narrow on `'topFrame' in results` (or cast, if you already know which mode you called) to get the specific shape back, since a fluent builder can't statically track that `.frames(true)` was called earlier in the chain. `occurrence.element` is typed `WebdriverIO.Element | null`. `webdriverio` is a `peerDependencies` entry (not just `devDependencies`) since the class's `browser` argument and `Occurrence#element` both come from its global `WebdriverIO` type namespace — consumers need their own `webdriverio` install for the types to resolve, same as they already do to construct a `browser` in the first place.
+`src/A11yCoreBuilder.d.ts` (re-exported from `src/index.d.ts`, wired up via `package.json`'s `types` field) ships types for the whole builder API plus `@surea11y/core`'s native result shapes (`A11yCoreResult`, `CheckResult`, `Occurrence`, `CompositeResult`, etc.). The result shapes are built on the types `@surea11y/core` ships itself, so fields such as `engine.version`, `engine.environment`, `contextMatch`, `skippedCustomRules`, `margin` and `shadowHostSelectors` follow the engine; this package adds `occurrence.element` and the `.frames(true)` shape. `EngineError`, `EngineErrorCode` and `ScanGap` come from `@surea11y/binding-base`. `analyze()` is typed `Promise<A11yCoreResult | A11yCoreMultiFrameResult>` — narrow on `'topFrame' in results` (or cast, if you already know which mode you called) to get the specific shape back, since a fluent builder can't statically track that `.frames(true)` was called earlier in the chain. `occurrence.element` is typed `WebdriverIO.Element | null`. `webdriverio` is a `peerDependencies` entry (not just `devDependencies`) since the class's `browser` argument and `Occurrence#element` both come from its global `WebdriverIO` type namespace — consumers need their own `webdriverio` install for the types to resolve, same as they already do to construct a `browser` in the first place.
 
 ## Relationship to `@surea11y/playwright` and `@surea11y/puppeteer`
 
@@ -195,7 +238,7 @@ This binding's builder API is deliberately the same shape as [`@surea11y/playwri
 
 Where it genuinely diverges is WebdriverIO's driver model, and those differences are real, not cosmetic:
 
-- **`analyze()`'s injection call** is variadic like Puppeteer's (`browser.execute(runa11yCoreInPage, url, ctx, opts, runOnly)`) — no single-arg wrapper/`eval()` trick the Playwright binding needs.
+- **`analyze()`'s injection call** is variadic like Puppeteer's (`browser.execute(inPageScan, url, ctx, opts, runOnly)`, where `inPageScan` is `@surea11y/core`'s `runa11yCoreInPage` wrapped by `@surea11y/binding-base` so an engine error keeps its `code`) — no single-arg wrapper the Playwright binding needs.
 - **`.frames(true)`** can't iterate a `page.frames()` array (there isn't one) — it drives WebdriverIO's stateful `switchFrame()` context model instead, recursing to reach nested frames. See above.
 - **`.elementRef(true)`** attaches `occurrence.element` (a `WebdriverIO.Element`), not `occurrence.elementHandle`, with the sub-frame-context caveat described above.
 - **Protocol:** classic WebDriver is strongly preferred over WebdriverIO v9's default BiDi for this execute()-heavy workload (see above).
