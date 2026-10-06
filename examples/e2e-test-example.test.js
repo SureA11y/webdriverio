@@ -26,7 +26,7 @@
  */
 
 const assert = require('node:assert');
-const { A11yCoreBuilder, formatFailures } = require('../src/index.js');
+const { A11yCoreBuilder, formatFailures, getScanGaps } = require('../src/index.js');
 
 describe('accessibility gate (@surea11y/webdriverio)', () => {
   it('flags real accessibility issues (unlabeled button, missing alt)', async () => {
@@ -52,11 +52,15 @@ describe('accessibility gate (@surea11y/webdriverio)', () => {
       .analyze();
 
     // The real assertion shape you'd use as an accessibility gate in CI --
-    // formatFailures() turns checksResults into a readable block (rule,
-    // severity, selector, hint per occurrence) instead of a bare object diff,
-    // so a failure is scannable straight from CI/terminal output. node:assert
+    // formatFailures() turns the result into a readable block (rule,
+    // severity, location, hint per occurrence, then anything the scan left
+    // out and the engine release) instead of a bare object diff, so a
+    // failure is scannable straight from CI/terminal output. node:assert
     // is used here rather than WebdriverIO's `expect` because the latter has
     // no custom-failure-message parameter (see this file's header comment).
-    assert.strictEqual(results.checksResults.length, 0, formatFailures(results.checksResults));
+    // getScanGaps() keeps an include() scope that matched nothing from
+    // passing as a clean page.
+    assert.strictEqual(results.checksResults.length, 0, formatFailures(results));
+    assert.deepStrictEqual(getScanGaps(results), [], formatFailures(results));
   });
 });

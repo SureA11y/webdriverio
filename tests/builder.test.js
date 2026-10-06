@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { remote } = require('webdriverio');
-const { A11yCoreBuilder } = require('../src/index.js');
+const { A11yCoreBuilder, EngineError } = require('../src/index.js');
 
 // WebdriverIO sessions are heavier to spin up than a puppeteer.launch()
 // (each starts a real chromedriver process), so -- unlike the sibling
@@ -698,4 +698,169 @@ test('A11yCoreBuilder: frames(true) scans a genuinely cross-origin iframe (no su
   assert.ok(!results.frames[0].error, `Cross-origin frame scan should not error: ${results.frames[0].error}`);
   assert.ok(Array.isArray(results.frames[0].checksResults));
   assert.ok(results.frames[0].checksResults.length > 0);
+});
+
+// ---- @surea11y/core 1.10.0: engine errors, scan gaps, shadow DOM, version ----
+
+const CORE_VERSION = require('@surea11y/core/package.json').version;
+
+function dataUrl(html) {
+  return 'data:text/html,' + encodeURIComponent(html);
+}
+
+// Runs fn with console.warn captured, returning what it printed.
+async function captureWarnings(fn) {
+  const warnings = [];
+  const original = console.warn;
+  console.warn = (...args) => { warnings.push(args.join(' ')); };
+  try {
+    await fn();
+  } finally {
+    console.warn = original;
+  }
+  return warnings;
+}
+
+test('A11yCoreBuilder: the result names the @surea11y/core release that produced it (engine.version)', async () => {
+  await browser.url('data:text/html,<html><body><button></button></body></html>');
+
+  const results = await new A11yCoreBuilder({ browser }).analyze();
+
+  assert.strictEqual(results.engine.version, CORE_VERSION);
+});
+
+test('A11yCoreBuilder: a rule list that names no known rule rejects with an EngineError whose code is INVALID_RUN_ONLY', async () => {
+  await browser.url('data:text/html,<html><body><button></button></body></html>');
+
+  await assert.rejects(
+    new A11yCoreBuilder({ browser }).withRules(['no-such-rule']).analyze(),
+    (e) => {
+      assert.ok(e instanceof EngineError);
+      assert.strictEqual(e.name, 'EngineError');
+      assert.strictEqual(e.code, 'INVALID_RUN_ONLY');
+      assert.strictEqual(e.selector, null);
+      return true;
+    }
+  );
+});
+
+test('A11yCoreBuilder: a tag list that names no known tag rejects with INVALID_RUN_ONLY, also under frames(true)', async () => {
+  await browser.url('data:text/html,<html><body><button></button></body></html>');
+
+  await assert.rejects(
+    new A11yCoreBuilder({ browser }).withTags(['wcag2.2aa']).frames(true).analyze(),
+    (e) => e instanceof EngineError && e.code === 'INVALID_RUN_ONLY'
+  );
+});
+
+test('A11yCoreBuilder: withTags()/withRules() throw at the call for a missing value, with code INVALID_RUN_ONLY', () => {
+  const builder = new A11yCoreBuilder({ browser: { execute() {} } });
+  for (const call of [() => builder.withTags(undefined), () => builder.withRules(''), () => builder.disableTags(null)]) {
+    assert.throws(call, (e) => e instanceof TypeError && e.code === 'INVALID_RUN_ONLY');
+  }
+});
+
+test('A11yCoreBuilder: an include() selector the browser cannot parse rejects with INVALID_CONTEXT_SELECTOR and names it', async () => {
+  await browser.url('data:text/html,<html><body><button></button></body></html>');
+
+  await assert.rejects(
+    new A11yCoreBuilder({ browser }).include('main[[').analyze(),
+    (e) => e instanceof EngineError && e.code === 'INVALID_CONTEXT_SELECTOR' && e.selector === 'main[['
+  );
+});
+
+test('A11yCoreBuilder: an include() scope that matches nothing scans nothing, says so in contextMatch, and warns', async () => {
+  await browser.url('data:text/html,<html><body><img src="x.png"></body></html>');
+
+  let results;
+  const warnings = await captureWarnings(async () => {
+    results = await new A11yCoreBuilder({ browser }).include('.no-such-region').analyze();
+  });
+
+  assert.deepStrictEqual(results.contextMatch, { elementCount: 0, unmatchedSelectors: ['.no-such-region'] });
+  assert.ok(results.checksResults.every((r) => r.outcome === 'notApplicable'));
+  assert.strictEqual(warnings.length, 1);
+  assert.match(warnings[0], /^@surea11y\/webdriverio .*Nothing was scanned: the scan scope matched no element \("\.no-such-region"\)\./);
+});
+
+test('A11yCoreBuilder: a custom rule that did not run is reported in skippedCustomRules and warned about', async () => {
+  await browser.url('data:text/html,<html><body><button>Ok</button></body></html>');
+
+  let results;
+  const warnings = await captureWarnings(async () => {
+    results = await new A11yCoreBuilder({ browser })
+      .options({ customRules: [{ id: 'broken-custom-rule', meta: { title: 'Broken' }, runInPage: 'not a function' }] })
+      .analyze();
+  });
+
+  assert.strictEqual(results.skippedCustomRules.length, 1);
+  assert.strictEqual(results.skippedCustomRules[0].id, 'broken-custom-rule');
+  assert.ok(!results.checksResults.some((r) => r.ruleId === 'broken-custom-rule'));
+  assert.strictEqual(warnings.length, 1);
+  assert.match(warnings[0], /Custom rule "broken-custom-rule" did not run: /);
+});
+
+test('A11yCoreBuilder: a clean scan prints no warning', async () => {
+  await browser.url('data:text/html,<html><body><main><button>Ok</button></main></body></html>');
+
+  const warnings = await captureWarnings(async () => {
+    await new A11yCoreBuilder({ browser }).include('main').analyze();
+  });
+
+  assert.deepStrictEqual(warnings, []);
+});
+
+test('A11yCoreBuilder: frames(true) with include() scopes the top frame only and scans each sub-frame whole', async () => {
+  // The scope exists only in the top document. Passing it down would leave
+  // the frame unscanned since core 1.10.0 (a selector that matches nothing
+  // scans nothing), so sub-frames get no contextSelector, as
+  // runa11yCoreAcrossFrames does.
+  await browser.url(
+    'data:text/html,<html><body>' +
+    '<main><img src="top.png"></main><img src="outside.png" alt="">' +
+    '<iframe srcdoc="%3Chtml%3E%3Cbody%3E%3Cimg src=x.png%3E%3C/body%3E%3C/html%3E"></iframe>' +
+    '</body></html>'
+  );
+  await waitForFrames(1);
+
+  const warnings = await captureWarnings(async () => {
+    const results = await new A11yCoreBuilder({ browser }).include('main').frames(true).analyze();
+
+    assert.deepStrictEqual(results.topFrame.contextMatch, { elementCount: 1, unmatchedSelectors: [] });
+    const topImg = results.topFrame.checksResults.find((r) => r.ruleId === 'img-alt-present');
+    assert.strictEqual(topImg.outcome, 'fail');
+    assert.strictEqual(topImg.occurrences.length, 1);
+
+    assert.strictEqual(results.frames.length, 1);
+    assert.strictEqual(results.frames[0].contextSelector, null);
+    assert.strictEqual(results.frames[0].contextMatch, null);
+    const frameImg = results.frames[0].checksResults.find((r) => r.ruleId === 'img-alt-present');
+    assert.strictEqual(frameImg.outcome, 'fail');
+  });
+  assert.deepStrictEqual(warnings, []);
+});
+
+test('A11yCoreBuilder: elementRef(true) resolves an occurrence inside a shadow tree through its shadow hosts', async () => {
+  // Both images sit at "p > img" in their own tree. core gives the shadow
+  // one that selector, which holds only inside the shadow root:
+  // browser.$('p > img') finds the light-DOM image instead.
+  await browser.url(dataUrl(
+    '<html><body><p><img src="light.png" alt="Fine"></p>' +
+    '<div id="host"></div>' +
+    '<script>document.getElementById("host").attachShadow({ mode: "open" }).innerHTML = ' +
+    '\'<p><img src="shadow.png"></p>\';</script>' +
+    '</body></html>'
+  ));
+
+  const results = await new A11yCoreBuilder({ browser }).withRules(['img-alt-present']).elementRef(true).analyze();
+
+  const rule = results.checksResults.find((r) => r.ruleId === 'img-alt-present');
+  assert.strictEqual(rule.outcome, 'fail');
+  assert.strictEqual(rule.occurrences.length, 1);
+  const [occurrence] = rule.occurrences;
+  assert.strictEqual(occurrence.selector, 'p > img');
+  assert.deepStrictEqual(occurrence.shadowHostSelectors, ['#host']);
+  assert.strictEqual(occurrence.structuralPath, null);
+  assert.ok(occurrence.element, 'occurrence should carry a live WebdriverIO.Element');
+  assert.strictEqual(await occurrence.element.getAttribute('src'), 'shadow.png');
 });
