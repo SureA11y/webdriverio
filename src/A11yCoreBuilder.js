@@ -192,8 +192,13 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
     // inPageScan takes the same four arguments as runa11yCoreInPage; an
     // engine error comes back as a plain object, which rethrowEngineError()
     // throws again here as an EngineError with its `code`.
+    // The script that registers withPacks()'s packs in a frame, which the
+    // scan names in engineOptions.packs; null without packs. execute() runs
+    // a string as a function body, so the script runs as written.
+    const packScript = this._packScript();
     const scanCurrent = async (scope) => {
       const frameUrl = this._url || (await this._browser.execute(() => document.location.href));
+      if (packScript) await this._browser.execute(packScript);
       const result = rethrowEngineError(
         await this._browser.execute(inPageScan, frameUrl, scope, engineOptions, runOnly)
       );
