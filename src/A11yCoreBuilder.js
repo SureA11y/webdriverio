@@ -136,14 +136,14 @@ const inPageScan = createInPageScan(runa11yCoreInPage);
  *
  * Create one builder per scan. This is a mutable object with no reset
  * between analyze() calls: include()/exclude()/withRules()/disableRules()/
- * withTags()/disableTags()/options()/withCustomRules() all push onto or
+ * withTags()/disableTags()/options()/withCustomRules()/withPacks() all push onto or
  * merge into internal state that persists for the instance's lifetime, so
  * calling one of them again before a second analyze() call accumulates on
  * top of the first scan's scope rather than replacing it (intentional for
  * "call include() several times for one scan" -- see above -- but a footgun
  * if you hold one instance across multiple assertions).
- * reportOnly()/frames()/elementRef() are the exception: each call replaces
- * the previous value rather than merging with it.
+ * reportOnly()/frames()/elementRef()/withWcag()/withBestPractices() are the
+ * exception: each call replaces the previous value rather than merging with it.
  */
 class A11yCoreBuilder extends A11yCoreBuilderBase {
   /**
@@ -301,7 +301,7 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
 
   /**
    * Prints what the scan left out (getScanGaps(): an include() scope that
-   * matched nothing, a custom rule that did not run) with console.warn.
+   * matched nothing, a custom rule or a pack that did not run) with console.warn.
    * @surea11y/core warns about these too, but in the page's console, which a
    * WebdriverIO run does not show; a result whose checksResults alone look
    * clean would otherwise pass without a word.

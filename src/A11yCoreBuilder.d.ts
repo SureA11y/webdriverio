@@ -10,6 +10,8 @@ import type {} from 'webdriverio';
 // { topFrame, frames } shape of .frames(true). The names below are the ones
 // this file has always exported.
 import type * as Core from '@surea11y/core';
+import type { PackLike, WcagVersion, WcagLevel } from '@surea11y/binding-base';
+export type { PackLike, WcagVersion, WcagLevel } from '@surea11y/binding-base';
 
 export type Outcome = Core.Outcome;
 export type OutcomeNormalized = Core.OutcomeNormalized;
@@ -137,6 +139,14 @@ export class A11yCoreBuilder {
   withRules(ruleIds: string | string[]): this;
   /** Never run these specific rule IDs (applied after withRules). */
   disableRules(ruleIds: string | string[]): this;
+  /**
+   * Run the rules for a WCAG conformance target: `withWcag('2.2', 'AA')`
+   * runs those of WCAG 2.2's A and AA criteria. withTags()/withRules() add
+   * to them. A later call replaces the target.
+   */
+  withWcag(version: WcagVersion | 2.0 | 2.1 | 2.2, level?: WcagLevel): this;
+  /** Also run the best-practice rules, those that name no WCAG criterion. */
+  withBestPractices(enabled?: boolean): this;
   /** Merge arbitrary engineOptions (locale, contrast.mode, policyContract, ...). */
   options(partialEngineOptions: Record<string, unknown>): this;
   /** Register one or more custom rules for just this scan. Call multiple times to accumulate. */
@@ -145,7 +155,7 @@ export class A11yCoreBuilder {
    * Packs from `@surea11y/core/pack` (core 1.11 or later): registered in each
    * frame before the scan, and named in `engineOptions.packs`.
    */
-  withPacks(packs: object | object[]): this;
+  withPacks(packs: PackLike | PackLike[]): this;
   /** Post-filter checksResults down to only the given outcomes. */
   reportOnly(outcomes: Outcome | Outcome[]): this;
   /** Opt in to also scanning every sub-frame on the page (including cross-origin and nested iframes). */
@@ -158,8 +168,10 @@ export class A11yCoreBuilder {
    * when .frames(true) was used. Rejects with an `EngineError` (from
    * `@surea11y/binding-base`, re-exported here) whose `code` is
    * `INVALID_RUN_ONLY` when a rule or tag list names nothing @surea11y/core
-   * knows, or `INVALID_CONTEXT_SELECTOR` (with `selector`) when an include()
-   * selector does not parse.
+   * knows, `INVALID_CONTEXT_SELECTOR` (with `selector`) when an include()
+   * selector does not parse, `INVALID_ENGINE_OPTIONS` for an option
+   * `strictOptions: true` rejects, or `PAGE_BUILTINS_BROKEN` when the page's
+   * scripts broke a JavaScript built-in the engine relies on.
    */
   analyze(): Promise<A11yCoreResult | A11yCoreMultiFrameResult>;
 }
@@ -168,7 +180,7 @@ export class A11yCoreBuilder {
  * Formats a result, or its checksResults array, into a short, human-readable
  * block -- one entry per fail/cantTell occurrence, not per rule. Given the
  * whole result, it also lists what the scan left out (an include() scope
- * that matched nothing, a custom rule that did not run) and the
+ * that matched nothing, a custom rule or a pack that did not run) and the
  * @surea11y/core release that produced it. Meant for an assertion
  * library's failure-message parameter, e.g.
  * `assert.strictEqual(fails.length, 0, formatFailures(results))`.

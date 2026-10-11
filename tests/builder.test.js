@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { remote } = require('webdriverio');
-const { A11yCoreBuilder, EngineError } = require('../src/index.js');
+const { A11yCoreBuilder, EngineError, getScanGaps } = require('../src/index.js');
 
 // WebdriverIO sessions are heavier to spin up than a puppeteer.launch()
 // (each starts a real chromedriver process), so -- unlike the sibling
@@ -937,4 +937,59 @@ test('A11yCoreBuilder: withPacks() runs the pack in every frame when combined wi
     assert.deepStrictEqual(r.engine.packs, ['@acme/a11y-rules@1.0.0']);
     assert.strictEqual(r.checksResults.find((c) => c.ruleId === 'acme-no-widget').outcome, 'fail');
   }
+});
+
+test('A11yCoreBuilder: withPacks() can scan the same page twice', async () => {
+  await browser.url(dataUrl('<html lang="en"><head><title>t</title></head><body><div class="my-widget">W</div></body></html>'));
+  for (let i = 0; i < 2; i++) {
+    const result = await new A11yCoreBuilder({ browser }).withPacks(ACME_PACK).withRules('acme-no-widget').analyze();
+    assert.deepStrictEqual(result.checksResults.map((r) => [r.ruleId, r.outcome]), [['acme-no-widget', 'fail']]);
+  }
+});
+
+test('A11yCoreBuilder: a pack the page does not run is a pack-skipped gap, and analyze() warns about it', async () => {
+  await browser.url(dataUrl('<html lang="en"><head><title>t</title></head><body><img src="a.png"></body></html>'));
+  let result;
+  const warnings = await captureWarnings(async () => {
+    result = await new A11yCoreBuilder({ browser }).options({ packs: ['@acme/not-registered@1.0.0'] }).withRules('img-alt-present').analyze();
+  });
+  const gaps = getScanGaps(result);
+  assert.deepStrictEqual(gaps.map((g) => [g.kind, g.pack.name]), [['pack-skipped', '@acme/not-registered@1.0.0']]);
+  assert.ok(warnings.some((w) => w.includes('Pack "@acme/not-registered@1.0.0" did not run')), warnings.join('\n'));
+});
+
+test('A11yCoreBuilder: withWcag() runs a WCAG target, and withBestPractices() adds the best practices', async () => {
+  await browser.url(dataUrl('<html lang="en"><head><title>t</title></head><body><img src="a.png"></body></html>'));
+  const target = await new A11yCoreBuilder({ browser }).withWcag('2.2', 'AA').analyze();
+  const ids = target.checksResults.map((r) => r.ruleId);
+  assert.strictEqual(target.engine.wcagVersion, '2.2');
+  assert.ok(ids.includes('img-alt-present'));
+  assert.ok(!ids.includes('duplicate-id'), '4.1.1 is no part of a WCAG 2.2 target');
+  assert.ok(!ids.includes('region'));
+  const withBest = await new A11yCoreBuilder({ browser }).withWcag('2.2', 'AA').withBestPractices().analyze();
+  assert.ok(withBest.checksResults.some((r) => r.ruleId === 'region'));
+});
+
+test('A11yCoreBuilder: strictOptions rejects a misspelt option with an EngineError carrying INVALID_ENGINE_OPTIONS', async () => {
+  await browser.url(dataUrl('<html lang="en"><head><title>t</title></head><body></body></html>'));
+  await assert.rejects(
+    () => new A11yCoreBuilder({ browser }).options({ strictOptions: true, lcoale: 'fr' }).analyze(),
+    (err) => err instanceof EngineError && err.code === 'INVALID_ENGINE_OPTIONS' && /lcoale/.test(err.message)
+  );
+});
+
+test("A11yCoreBuilder: a frames(true) result goes to @surea11y/core's SARIF report with every frame's findings", async () => {
+  const { renderSarifReport } = require('@surea11y/core/sarif');
+  await browser.url(dataUrl(
+    '<html lang="en"><head><title>t</title></head><body><img src="top.png">' +
+    '<iframe title="Ad" srcdoc="<html lang=en><head><title>f</title></head><body><img src=ad.png></body></html>"></iframe></body></html>'
+  ));
+  await waitForFrames(1);
+  const results = await new A11yCoreBuilder({ browser }).frames(true).withRules('img-alt-present').analyze();
+  assert.strictEqual(results.frames.length, 1);
+  const run = JSON.parse(renderSarifReport(results)).runs[0];
+  const failures = run.results.filter((r) => r.ruleId === 'img-alt-present' && r.level === 'error');
+  assert.strictEqual(failures.length, 2, JSON.stringify(failures.map((r) => r.locations)));
+  const notices = (run.invocations || []).flatMap((i) => i.toolExecutionNotifications || []);
+  assert.deepStrictEqual(notices.map((n) => n.message.text), [], 'no frame reported as not scanned');
 });
