@@ -3,7 +3,8 @@
 /**
  * Demonstrates the pattern that actually matters for E2E test suites: using
  * A11yCoreBuilder as an accessibility gate inside a real test, not just a
- * standalone script -- see basic-scan.js for that simpler case.
+ * standalone script -- see basic-scan.js for that simpler case, and
+ * scan-with-pack.js for a scan against a pack.
  *
  * Runner choice: the WebdriverIO testrunner (`@wdio/cli`
  * + mocha), driven by examples/wdio.conf.js. This is the idiomatic way real
@@ -61,6 +62,25 @@ describe('accessibility gate (@surea11y/webdriverio)', () => {
     // getScanGaps() keeps an include() scope that matched nothing from
     // passing as a clean page.
     assert.strictEqual(results.checksResults.length, 0, formatFailures(results));
+    assert.deepStrictEqual(getScanGaps(results), [], formatFailures(results));
+  });
+
+  it("a page meets a pack's checklist (here, acme-policy-pack.js)", async () => {
+    const acmePolicy = require('./acme-policy-pack.js');
+    await browser.url(
+      'data:text/html,<html lang="en"><head><title>Example</title></head>' +
+      '<body><main><h1>Hello</h1><img src="logo.png" alt="Acme"><video src="intro.mp4" autoplay muted></video></main></body></html>'
+    );
+
+    const results = await new A11yCoreBuilder({ browser })
+      .withPacks(acmePolicy)
+      .options({ profile: 'acme-web-2026' })
+      .reportOnly(['fail'])
+      .analyze();
+
+    assert.strictEqual(results.checksResults.length, 0, formatFailures(results));
+    // A pack that didn't run (its core range, or a page on another core)
+    // would otherwise pass here with nothing checked.
     assert.deepStrictEqual(getScanGaps(results), [], formatFailures(results));
   });
 });

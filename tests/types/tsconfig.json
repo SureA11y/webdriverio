@@ -7,7 +7,8 @@
     "target": "es2022",
     "lib": ["es2022", "dom"],
     "paths": {
-      "puppeteer-core": ["./puppeteer-core.d.ts"]
+      "puppeteer-core": ["./puppeteer-core.d.ts"],
+      "urlpattern-polyfill": ["./urlpattern-polyfill.d.ts"]
     }
   },
   "files": ["usage.ts"]

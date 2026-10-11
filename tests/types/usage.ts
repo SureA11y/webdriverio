@@ -14,16 +14,23 @@ import type {
   CheckResult,
   EngineErrorCode,
   Occurrence,
-  ScanGap
+  PackLike,
+  ScanGap,
+  WcagLevel,
+  WcagVersion
 } from '../../src/index.js';
 import type { ScanResult } from '@surea11y/core';
+import { definePack } from '@surea11y/core/pack';
 
 declare const browser: WebdriverIO.Browser;
 
 async function single(): Promise<void> {
   const result = (await new A11yCoreBuilder({ browser })
     .include('main')
-    .withTags(['wcag2a', 'wcag2aa'])
+    .withWcag('2.2', 'AA')
+    .withBestPractices()
+    .withTags(['best-practice'])
+    .withPacks(definePack({ name: '@acme/a11y-rules', version: '1.0.0', namespace: 'acme', core: '^1.11.1' }))
     .elementRef(true)
     .analyze()) as A11yCoreResult;
 
@@ -50,6 +57,18 @@ async function single(): Promise<void> {
   // The binding's result is still core's result.
   const asCore: ScanResult = result;
   const gaps: ScanGap[] = getScanGaps(result);
+  for (const gap of gaps) {
+    if (gap.kind === 'custom-rule-skipped') {
+      const id: string | null = gap.rule.id;
+      void id;
+    } else if (gap.kind === 'pack-skipped') {
+      const name: string | null = gap.pack.name;
+      void name;
+    } else {
+      const selectors: string[] = gap.selectors;
+      void selectors;
+    }
+  }
   const message: string = formatFailures(result, { outcomes: ['fail'] });
   const fromChecks: string = formatFailures(result.checksResults);
   void version; void layout; void scanned; void skipped; void asCore; void gaps; void message; void fromChecks;
@@ -78,7 +97,11 @@ async function errors(): Promise<void> {
     }
   }
   const codes: EngineErrorCode[] = ENGINE_ERROR_CODES;
-  void codes;
+  const newer: EngineErrorCode[] = ['INVALID_ENGINE_OPTIONS', 'PAGE_BUILTINS_BROKEN'];
+  const target: [WcagVersion, WcagLevel] = ['2.1', 'AAA'];
+  const pack: PackLike = { name: '@acme/a11y-rules', version: '1.0.0' };
+  await new A11yCoreBuilder({ browser }).withWcag(...target).withPacks([pack]).options({ strictOptions: true }).analyze();
+  void codes; void newer;
 }
 
 void single; void frames; void errors;

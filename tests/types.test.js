@@ -11,7 +11,8 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
 test('the type definitions compile against @surea11y/core\'s types', () => {
-  const tsc = require.resolve('typescript/bin/tsc');
+  // TypeScript 7 exports no bin/tsc subpath, so find it beside its package.json.
+  const tsc = path.join(path.dirname(require.resolve('typescript/package.json')), 'bin', 'tsc');
   const project = path.join(__dirname, 'types', 'tsconfig.json');
   try {
     execFileSync(process.execPath, [tsc, '--project', project], { stdio: 'pipe' });
