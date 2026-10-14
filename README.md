@@ -70,13 +70,24 @@ const results = await new A11yCoreBuilder({ browser })
 
 Without `.includeMode('or')`, the same lines run no rule at all, since `contrast-computable` isn't tagged `forms`, and a scan of no rules looks clean. The same goes for a WCAG level tag beside a best practice: `.withTags('wcag2a').withRules('region')` runs nothing, and with `'or'` runs the `wcag2a` rules plus `region`. On its own, with no other selection, it changes nothing. A value other than `'and'` or `'or'` throws a `TypeError` with `code: 'INVALID_RUN_ONLY'` at the call. A `.withWcag()` target doesn't need it: its rules are always added to what tags and rules select.
 
+`.wcagLevel(level)` sets the WCAG level of the criteria a scan reports, without changing which rules run: criteria above it are left out of `results.rulesResults`, while every selected rule still runs and reports in `results.checksResults`. It's what lets a scan that names a few checks say it is meant as WCAG AA. A team that gates each pull request on colour contrast alone, say, runs one check, which covers both 1.4.3 (AA) and 1.4.6 (AAA):
+
+```js
+const results = await new A11yCoreBuilder({ browser })
+  .withRules('contrast-computable')
+  .wcagLevel('AA')               // report 1.4.3, not the AAA 1.4.6
+  .analyze();
+```
+
+Without `.wcagLevel('AA')`, that scan reports 1.4.6 as well, so a site that meets AA can show a failing AAA criterion it never aimed for. With it, the scan reports 1.4.3 alone, and `results.engine.wcagLevel` says `'AA'`. A `.withWcag()` target already implies its level; `.wcagLevel()` is for selections that don't, and wins when both are given, as it does over a level given through `.options()`. `'A'`, `'AA'` or `'AAA'` in any case is accepted. Anything else throws a `TypeError` with `code: 'INVALID_ENGINE_OPTIONS'` at the call, and `null` clears it. Needs the `@surea11y/core` release after 1.11.1.
+
 A rule or tag list that names nothing `@surea11y/core` knows makes `analyze()` reject with `code: 'INVALID_RUN_ONLY'` (see [When a scan can't run as asked](#when-a-scan-cant-run-as-asked)), so a typo such as `.withTags(['wcag2.2aa'])` can't run no rule at all and pass. An unknown name beside known ones is ignored, with a warning in the page's console. The four methods also throw a `TypeError` with the same `code` straight away for anything but a string or an array of strings, such as `undefined` from a missing config value.
 
 Rule IDs change rarely, but core 1.10.0 changed two: `label-title-only` is deprecated (it reports `notApplicable`; every field it flagged, `form-control-programmatic-label-quality` flags too) and keeps resolving until 2.0.0, so a `.disableRules(['label-title-only'])` still works but no longer does anything; and `landmark-role-name-present` is new, a `best-practice` rule that asks about an element with `role="region"` or `role="form"` and no accessible name.
 
 `.exclude(selector)` above excludes globally. Pass a second argument to scope it to specific rule IDs instead: `.exclude('.mat-select', { rules: ['aria-required-children'] })` skips `.mat-select` for that rule only — every other rule still sees it. Global and rule-scoped `.exclude()` calls compose freely.
 
-**Create one builder per scan.** `A11yCoreBuilder` is a mutable object with no reset between `.analyze()` calls — `include()`/`exclude()`/`withRules()`/`disableRules()`/`withTags()`/`disableTags()`/`options()`/`withCustomRules()`/`withPacks()` all push onto or merge into internal state that persists for the instance's lifetime. Calling one of them again before a second `.analyze()` call *accumulates* on top of the first scan's scope rather than replacing it (this is exactly what makes "call `.include()` several times for one scan," above, work — the same accumulation just also applies across separate scans if you reuse an instance). `.reportOnly()`/`.frames()`/`.elementRef()`/`.withWcag()`/`.withBestPractices()`/`.includeMode()`/`.logger()` are the exception: each call replaces the previous value instead of merging with it.
+**Create one builder per scan.** `A11yCoreBuilder` is a mutable object with no reset between `.analyze()` calls — `include()`/`exclude()`/`withRules()`/`disableRules()`/`withTags()`/`disableTags()`/`options()`/`withCustomRules()`/`withPacks()` all push onto or merge into internal state that persists for the instance's lifetime. Calling one of them again before a second `.analyze()` call *accumulates* on top of the first scan's scope rather than replacing it (this is exactly what makes "call `.include()` several times for one scan," above, work — the same accumulation just also applies across separate scans if you reuse an instance). `.reportOnly()`/`.frames()`/`.elementRef()`/`.withWcag()`/`.withBestPractices()`/`.includeMode()`/`.wcagLevel()`/`.logger()` are the exception: each call replaces the previous value instead of merging with it.
 
 This binding works against any browser WebdriverIO can drive; the tests and examples use headless Chrome via `chromedriver`, which WebdriverIO manages automatically.
 
@@ -315,7 +326,7 @@ The binding passes rule IDs, tags and options through to the engine, so these sh
 
 ## Relationship to `@surea11y/playwright` and `@surea11y/puppeteer`
 
-This binding's builder API is deliberately the same shape as [`@surea11y/playwright`](https://github.com/SureA11y/playwright)'s and `@surea11y/puppeteer`'s — same method names, same mutability contract, same result shapes — so the accessibility-gate logic reads almost identically across all three. The state-accumulation half of the builder (`include`/`exclude`/`withTags`/`disableTags`/`withRules`/`disableRules`/`withWcag`/`withBestPractices`/`includeMode`/`logger`/`options`/`withCustomRules`/`withPacks`/`reportOnly`) is not copied across bindings — `A11yCoreBuilder` here extends `A11yCoreBuilderBase` from [`@surea11y/binding-base`](https://github.com/SureA11y/binding-base), the single shared implementation every sibling binding depends on.
+This binding's builder API is deliberately the same shape as [`@surea11y/playwright`](https://github.com/SureA11y/playwright)'s and `@surea11y/puppeteer`'s — same method names, same mutability contract, same result shapes — so the accessibility-gate logic reads almost identically across all three. The state-accumulation half of the builder (`include`/`exclude`/`withTags`/`disableTags`/`withRules`/`disableRules`/`withWcag`/`withBestPractices`/`includeMode`/`wcagLevel`/`logger`/`options`/`withCustomRules`/`withPacks`/`reportOnly`) is not copied across bindings — `A11yCoreBuilder` here extends `A11yCoreBuilderBase` from [`@surea11y/binding-base`](https://github.com/SureA11y/binding-base), the single shared implementation every sibling binding depends on.
 
 Where it genuinely diverges is WebdriverIO's driver model, and those differences are real, not cosmetic:
 
