@@ -30,6 +30,7 @@ async function single(): Promise<void> {
     .withWcag('2.2', 'AA')
     .withBestPractices()
     .includeMode('or')
+    .logger((gap, frame) => { void `${frame.url}: ${gap.kind} ${gap.message}`; })
     .withTags(['best-practice'])
     .withPacks(definePack({ name: '@acme/a11y-rules', version: '1.0.0', namespace: 'acme', core: '^1.11.1' }))
     .elementRef(true)

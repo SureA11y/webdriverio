@@ -5,8 +5,7 @@ const {
   A11yCoreBuilderBase,
   createInPageScan,
   rethrowEngineError,
-  queryOccurrenceElement,
-  getScanGaps
+  queryOccurrenceElement
 } = require('@surea11y/binding-base');
 
 // core's runa11yCoreInPage, wrapped so an engine error (INVALID_RUN_ONLY,
@@ -202,7 +201,7 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
       const result = rethrowEngineError(
         await this._browser.execute(inPageScan, frameUrl, scope, engineOptions, runOnly)
       );
-      this._warnScanGaps(result);
+      this._warnScanGaps(result, '@surea11y/webdriverio');
       return this._elementRef ? this._attachElementRefs(result) : result;
     };
 
@@ -296,26 +295,6 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
     for (const index of path) {
       const iframes = await this._browser.$$('iframe');
       await this._browser.switchFrame(iframes[index]);
-    }
-  }
-
-  /**
-   * Prints what the scan left out (getScanGaps(): an include() scope that
-   * matched nothing, a custom rule or a pack that did not run) with console.warn.
-   * @surea11y/core warns about these too, but in the page's console, which a
-   * WebdriverIO run does not show; a result whose checksResults alone look
-   * clean would otherwise pass without a word.
-   */
-  _warnScanGaps(result) {
-    let gaps;
-    try {
-      gaps = getScanGaps(result);
-    } catch (e) {
-      return; // not a scan result; the caller sees it as it is
-    }
-    const where = result.url ? ` (${result.url})` : '';
-    for (const gap of gaps) {
-      console.warn(`@surea11y/webdriverio${where}: ${gap.message}`);
     }
   }
 
