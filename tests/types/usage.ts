@@ -29,6 +29,7 @@ async function single(): Promise<void> {
     .include('main')
     .withWcag('2.2', 'AA')
     .withBestPractices()
+    .includeMode('or')
     .withTags(['best-practice'])
     .withPacks(definePack({ name: '@acme/a11y-rules', version: '1.0.0', namespace: 'acme', core: '^1.11.1' }))
     .elementRef(true)
