@@ -76,7 +76,7 @@ Rule IDs change rarely, but core 1.10.0 changed two: `label-title-only` is depre
 
 `.exclude(selector)` above excludes globally. Pass a second argument to scope it to specific rule IDs instead: `.exclude('.mat-select', { rules: ['aria-required-children'] })` skips `.mat-select` for that rule only — every other rule still sees it. Global and rule-scoped `.exclude()` calls compose freely.
 
-**Create one builder per scan.** `A11yCoreBuilder` is a mutable object with no reset between `.analyze()` calls — `include()`/`exclude()`/`withRules()`/`disableRules()`/`withTags()`/`disableTags()`/`options()`/`withCustomRules()`/`withPacks()` all push onto or merge into internal state that persists for the instance's lifetime. Calling one of them again before a second `.analyze()` call *accumulates* on top of the first scan's scope rather than replacing it (this is exactly what makes "call `.include()` several times for one scan," above, work — the same accumulation just also applies across separate scans if you reuse an instance). `.reportOnly()`/`.frames()`/`.elementRef()`/`.withWcag()`/`.withBestPractices()`/`.includeMode()` are the exception: each call replaces the previous value instead of merging with it.
+**Create one builder per scan.** `A11yCoreBuilder` is a mutable object with no reset between `.analyze()` calls — `include()`/`exclude()`/`withRules()`/`disableRules()`/`withTags()`/`disableTags()`/`options()`/`withCustomRules()`/`withPacks()` all push onto or merge into internal state that persists for the instance's lifetime. Calling one of them again before a second `.analyze()` call *accumulates* on top of the first scan's scope rather than replacing it (this is exactly what makes "call `.include()` several times for one scan," above, work — the same accumulation just also applies across separate scans if you reuse an instance). `.reportOnly()`/`.frames()`/`.elementRef()`/`.withWcag()`/`.withBestPractices()`/`.includeMode()`/`.logger()` are the exception: each call replaces the previous value instead of merging with it.
 
 This binding works against any browser WebdriverIO can drive; the tests and examples use headless Chrome via `chromedriver`, which WebdriverIO manages automatically.
 
@@ -255,6 +255,17 @@ Two other cases don't throw but leave part of the page unchecked, so a result th
 
 `analyze()` prints each of these with `console.warn`, and `getScanGaps(results)` returns them as `[{ kind, message, ... }]` (`kind` is `context-not-found`, `context-partly-not-found`, `custom-rule-skipped` or `pack-skipped`), so a gate can fail on them, as the E2E example above does. `formatFailures(results)` lists them too.
 
+That warning is the right default for a test run. A project that already handles gaps itself can take them over with `.logger(fn)`: `fn(gap, result)` is called once per gap, with the gap as `getScanGaps()` gives it and the result of the frame it came from, instead of `console.warn`. A scanning service that shows gaps to its users, say, can send them once to its own structured log, rather than also printing a loose line on the server's console for every scan:
+
+```js
+const results = await new A11yCoreBuilder({ browser })
+  .include('#checkout')
+  .logger((gap, frame) => log.warn({ url: frame.url, kind: gap.kind }, gap.message))
+  .analyze();
+```
+
+A batch job that writes `getScanGaps(results)` into its own report can pass `.logger(() => {})` to keep its output to the report, and `.logger(null)` brings `console.warn` back. Anything other than a function or `null` throws a `TypeError` at the call, and a later call replaces the logger. Either way, `getScanGaps(results)` still lists every gap.
+
 ### Checking against EN 301 549
 
 EN 301 549, the standard the European Accessibility Act refers to, restates WCAG's Level A and AA criteria in its chapter 9. `.options({ profile })` runs the rules for its version, and each finding carries its EN 301 549 clause beside its WCAG criterion, in `meta.normativeMappings` (WCAG 1.1.1 is clause 9.1.1.1):
@@ -319,7 +330,7 @@ The binding passes rule IDs, tags and options through to the engine, so these sh
 
 ## Relationship to `@surea11y/playwright` and `@surea11y/puppeteer`
 
-This binding's builder API is deliberately the same shape as [`@surea11y/playwright`](https://github.com/SureA11y/playwright)'s and `@surea11y/puppeteer`'s — same method names, same mutability contract, same result shapes — so the accessibility-gate logic reads almost identically across all three. The state-accumulation half of the builder (`include`/`exclude`/`withTags`/`disableTags`/`withRules`/`disableRules`/`withWcag`/`withBestPractices`/`includeMode`/`options`/`withCustomRules`/`withPacks`/`reportOnly`) is not copied across bindings — `A11yCoreBuilder` here extends `A11yCoreBuilderBase` from [`@surea11y/binding-base`](https://github.com/SureA11y/binding-base), the single shared implementation every sibling binding depends on.
+This binding's builder API is deliberately the same shape as [`@surea11y/playwright`](https://github.com/SureA11y/playwright)'s and `@surea11y/puppeteer`'s — same method names, same mutability contract, same result shapes — so the accessibility-gate logic reads almost identically across all three. The state-accumulation half of the builder (`include`/`exclude`/`withTags`/`disableTags`/`withRules`/`disableRules`/`withWcag`/`withBestPractices`/`includeMode`/`logger`/`options`/`withCustomRules`/`withPacks`/`reportOnly`) is not copied across bindings — `A11yCoreBuilder` here extends `A11yCoreBuilderBase` from [`@surea11y/binding-base`](https://github.com/SureA11y/binding-base), the single shared implementation every sibling binding depends on.
 
 Where it genuinely diverges is WebdriverIO's driver model, and those differences are real, not cosmetic:
 
