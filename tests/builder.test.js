@@ -810,6 +810,34 @@ test('A11yCoreBuilder: a clean scan prints no warning', async () => {
   assert.deepStrictEqual(warnings, []);
 });
 
+test('A11yCoreBuilder: logger() receives each scan gap with the result, instead of console.warn', async () => {
+  await browser.url('data:text/html,<html><body><button>Ok</button></body></html>');
+
+  const seen = [];
+  let results;
+  const warnings = await captureWarnings(async () => {
+    results = await new A11yCoreBuilder({ browser })
+      .include('.no-such-region')
+      .options({ customRules: [{ id: 'broken-custom-rule', meta: { title: 'Broken' }, runInPage: 'not a function' }] })
+      .logger((gap, frame) => seen.push([gap.kind, frame]))
+      .analyze();
+  });
+
+  assert.deepStrictEqual(warnings, []);
+  assert.deepStrictEqual(seen.map(([kind]) => kind), ['context-not-found', 'custom-rule-skipped']);
+  assert.ok(seen.every(([, frame]) => frame.url === results.url && Array.isArray(frame.checksResults)));
+});
+
+test('A11yCoreBuilder: logger(() => {}) silences the scan-gap warnings, and logger(null) brings them back', async () => {
+  await browser.url('data:text/html,<html><body><img src="x.png"></body></html>');
+
+  const builder = new A11yCoreBuilder({ browser }).include('.no-such-region').logger(() => {});
+  assert.deepStrictEqual(await captureWarnings(() => builder.analyze()), []);
+  const warnings = await captureWarnings(() => builder.logger(null).analyze());
+  assert.strictEqual(warnings.length, 1, warnings.join('\n'));
+  assert.match(warnings[0], /^@surea11y\/webdriverio .*Nothing was scanned/);
+});
+
 test('A11yCoreBuilder: frames(true) with include() scopes the top frame only and scans each sub-frame whole', async () => {
   // The scope exists only in the top document. Passing it down would leave
   // the frame unscanned since core 1.10.0 (a selector that matches nothing
