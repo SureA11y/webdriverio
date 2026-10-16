@@ -5,7 +5,9 @@ const {
   A11yCoreBuilderBase,
   createInPageScan,
   rethrowEngineError,
-  queryOccurrenceElement
+  queryOccurrenceElement,
+  planScreenshots,
+  cropViewportScreenshot
 } = require('@surea11y/binding-base');
 
 // core's runa11yCoreInPage, wrapped so an engine error (INVALID_RUN_ONLY,
@@ -112,6 +114,19 @@ const inPageScan = createInPageScan(runa11yCoreInPage);
  * than `.evaluate(el => el.id)`, `.saveScreenshot(path)` rather than
  * `.screenshot({ path })`). See the README.
  *
+ * Or let the scan take a picture of each element it flags, with
+ * `.screenshots()` (@surea11y/binding-base's, see its README): each
+ * occurrence gets a `screenshot` field, the picture (a Buffer, or a file in
+ * `dir`) or why there is none. The element is scrolled into view and marked
+ * with a box drawn over the page, and the page is put back afterwards; in
+ * every frame with `.frames(true)`, including cross-origin ones:
+ *
+ * const results = await new A11yCoreBuilder({ browser })
+ *   .screenshots({ dir: 'a11y-shots', padding: 16 })
+ *   .analyze();
+ * // results.checksResults[i].occurrences[j].screenshot
+ * //   -> { path: 'a11y-shots/element-3f9a1c07.png', box: { x, y, width, height } }
+ *
  * Register your own rule(s) for just this scan with
  * `.withCustomRules([...])` (@surea11y/core's `engineOptions.customRules`
  * escape hatch -- see ../core/docs/ENGINE_OPTIONS.md). Pass a real,
@@ -141,8 +156,9 @@ const inPageScan = createInPageScan(runa11yCoreInPage);
  * top of the first scan's scope rather than replacing it (intentional for
  * "call include() several times for one scan" -- see above -- but a footgun
  * if you hold one instance across multiple assertions).
- * reportOnly()/frames()/elementRef()/withWcag()/withBestPractices() are the
- * exception: each call replaces the previous value rather than merging with it.
+ * reportOnly()/frames()/elementRef()/screenshots()/withWcag()/withBestPractices()
+ * are the exception: each call replaces the previous value rather than
+ * merging with it.
  */
 class A11yCoreBuilder extends A11yCoreBuilderBase {
   /**
@@ -236,28 +252,38 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
     // scan names in engineOptions.packs; null without packs. execute() runs
     // a string as a function body, so the script runs as written.
     const packScript = this._packScript();
-    const scanCurrent = async (scope) => {
+    // `path` is the frame being scanned, as _scanChildFrames addresses it
+    // ([] for the top-level page); the screenshots step needs it to reach
+    // the frame again, and its parents.
+    const scanCurrent = async (scope, path) => {
       const frameUrl = this._url || (await this._browser.execute(() => document.location.href));
       if (packScript) await this._browser.execute(packScript);
       const result = rethrowEngineError(
         await this._browser.execute(inPageScan, frameUrl, scope, engineOptions, runOnly)
       );
       this._warnScanGaps(result, '@surea11y/webdriverio');
-      return this._elementRef ? this._attachElementRefs(result) : result;
+      // Element references first: they are resolved in the current frame,
+      // which the screenshots step switches away from.
+      if (this._elementRef) await this._attachElementRefs(result);
+      if (this._screenshots) await this._screenshotFrame(result, path);
+      return result;
     };
 
     if (!this._scanFrames) {
-      return this._applyReportOnly(await scanCurrent(contextSelector));
+      // Whatever frame the caller left the browser in; the screenshots step
+      // can place pictures only from the top-level page (see
+      // _screenshotFrame), and null says so.
+      return this._applyReportOnly(await scanCurrent(contextSelector, null));
     }
 
     // The top frame is scanned first, so an INVALID_RUN_ONLY or
     // INVALID_CONTEXT_SELECTOR error is thrown from it, before any sub-frame.
-    const topFrame = this._applyReportOnly(await scanCurrent(contextSelector));
+    const topFrame = this._applyReportOnly(await scanCurrent(contextSelector, []));
 
     // Sub-frames are scanned whole: the include() scope belongs to the top
     // frame's document (see the class comment).
     const frames = [];
-    await this._scanChildFrames([], () => scanCurrent(null), frames);
+    await this._scanChildFrames([], (childPath) => scanCurrent(null, childPath), frames);
 
     // Leave the browser back at the top-level frame regardless of how the
     // traversal ended, so a caller's next command isn't silently running in
@@ -315,7 +341,7 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
       }
 
       try {
-        out.push(this._applyReportOnly(await scanCurrent()));
+        out.push(this._applyReportOnly(await scanCurrent(path.concat(i))));
       } catch (e) {
         out.push({ url: frameUrl, error: (e && e.message) || String(e) });
       }
@@ -337,6 +363,58 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
       const iframes = await this._browser.$$('iframe');
       await this._browser.switchFrame(iframes[index]);
     }
+  }
+
+  /**
+   * binding-base's screenshots step for the frame at `path` (child <iframe>
+   * indices from the top, as _scanChildFrames walks them), with the
+   * <iframe>s leading to it given by index among `$$('iframe')`, the way
+   * this binding counts frames: element references don't survive switching
+   * away and back under BiDi. The step switches between frames as it goes,
+   * so the browser is switched back into the scanned frame afterwards, where
+   * the traversal goes on.
+   *
+   * `path` is null for a scan without .frames(true), which runs in whatever
+   * frame the caller left the browser in. From the top-level page that is
+   * `[]`; from inside a frame, nothing says how it sits on the page, so its
+   * occurrences get `capture-failed` rather than misplaced pictures.
+   */
+  async _screenshotFrame(result, path) {
+    if (path === null) {
+      const atTop = await this._browser.execute(() => window === window.top).catch(() => false);
+      if (!atTop) {
+        const error = 'the browser was switched into a frame when analyze() ran; pictures are placed from the top-level page, so scan from there, with .frames(true) to include the frame';
+        const { elements, unlocated } = planScreenshots(result, { outcomes: this._screenshots.outcomes });
+        for (const element of elements) {
+          const shot = { skipped: 'capture-failed', error };
+          for (const occurrence of element.occurrences) occurrence.screenshot = shot;
+        }
+        for (const occurrence of unlocated) occurrence.screenshot = { skipped: 'no-element' };
+        return;
+      }
+      path = [];
+    }
+    const framePath = path.map((index, depth) => ({ frame: path.slice(0, depth), iframe: { selector: 'iframe', index } }));
+    try {
+      await this._captureScreenshots(result, path, framePath);
+    } finally {
+      await this._switchToPath(path).catch(() => {});
+    }
+  }
+
+  /** For binding-base's screenshots step: runs `fn(...args)` in the frame at `path`. */
+  async _evaluateInFrame(path, fn, args) {
+    await this._switchToPath(path);
+    return this._browser.execute(fn, ...args);
+  }
+
+  /**
+   * For binding-base's screenshots step: a PNG of `box`, CSS pixels in the
+   * top-level viewport, cut out of WebDriver's screenshot of that viewport,
+   * which it takes whatever frame the browser is switched into.
+   */
+  async _captureBox(box, view) {
+    return cropViewportScreenshot(await this._browser.takeScreenshot(), box, view);
   }
 
   /**

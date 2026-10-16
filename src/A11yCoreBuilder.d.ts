@@ -10,8 +10,8 @@ import type {} from 'webdriverio';
 // { topFrame, frames } shape of .frames(true). The names below are the ones
 // this file has always exported.
 import type * as Core from '@surea11y/core';
-import type { PackLike, WcagVersion, WcagLevelInput, ScanGap, ScanNote, PlannedCheck, PlannedCriterion } from '@surea11y/binding-base';
-export type { PackLike, WcagVersion, WcagLevel } from '@surea11y/binding-base';
+import type { PackLike, WcagVersion, WcagLevelInput, ScanGap, ScanNote, PlannedCheck, PlannedCriterion, ScreenshotOptions, OccurrenceScreenshot } from '@surea11y/binding-base';
+export type { PackLike, WcagVersion, WcagLevel, ScreenshotOptions, ScreenshotSkip, ScreenshotBox, OccurrenceScreenshot } from '@surea11y/binding-base';
 
 export type Outcome = Core.Outcome;
 export type OutcomeNormalized = Core.OutcomeNormalized;
@@ -53,6 +53,12 @@ export interface Occurrence extends Core.Occurrence {
    * switched into that frame.
    */
   element?: WebdriverIO.Element | null;
+  /**
+   * Only present when `.screenshots()` was used and this occurrence's own
+   * outcome is one it pictures: the picture, or why there is none. The
+   * occurrences about the same element share one object.
+   */
+  screenshot?: OccurrenceScreenshot;
 }
 
 export interface CheckResult extends Omit<Core.CheckResult, 'occurrences'> {
@@ -190,6 +196,13 @@ export class A11yCoreBuilder {
   frames(enabled?: boolean): this;
   /** Opt in to resolving each fail/cantTell occurrence's selector to a live WebdriverIO.Element. */
   elementRef(enabled?: boolean): this;
+  /**
+   * Opt in to a picture of each element the scan flags, on its occurrences'
+   * `screenshot` field: a Buffer, or a file in `dir`. `false` turns them
+   * off. Throws a TypeError with code 'INVALID_ENGINE_OPTIONS' for an option
+   * it can't use.
+   */
+  screenshots(options?: ScreenshotOptions | boolean): this;
   /** The rules this scan will run, worked out in Node with no page (@surea11y/core 1.12.0 and later). */
   plannedChecks(): PlannedCheck[];
   /** The criteria this scan will report in rulesResults, worked out in Node with no page. */
