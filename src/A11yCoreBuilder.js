@@ -1,6 +1,6 @@
 'use strict';
 
-const { runa11yCoreInPage } = require('@surea11y/core');
+const { runa11yCoreInPage, internalsHookScript } = require('@surea11y/core');
 const {
   A11yCoreBuilderBase,
   createInPageScan,
@@ -145,6 +145,47 @@ const inPageScan = createInPageScan(runa11yCoreInPage);
  * exception: each call replaces the previous value rather than merging with it.
  */
 class A11yCoreBuilder extends A11yCoreBuilderBase {
+  /**
+   * Installs @surea11y/core's opt-in internals hook, so a scan can read the
+   * names, states and roles web components set through a private
+   * ElementInternals. Call it before browser.url(). It uses:
+   *
+   * - browser.addInitScript() when the session speaks WebDriver BiDi
+   *   (WebdriverIO 9's default);
+   * - otherwise, on Chrome and Edge, the DevTools protocol through
+   *   chromedriver (Page.addScriptToEvaluateOnNewDocument, sent with
+   *   browser.sendCommandAndGetResult()), as in a WebdriverIO 8 or
+   *   classic session.
+   *
+   * Both run the script in every frame of the page, before its scripts, and
+   * after each navigation. Any other session gets an error saying it has no
+   * way to run a script before the page loads. Resolves to the way it was
+   * installed, 'bidi' or 'cdp'.
+   * @param {WebdriverIO.Browser} browser
+   * @returns {Promise<'bidi' | 'cdp'>}
+   */
+  static async installInternalsHook(browser) {
+    if (!browser || typeof browser.execute !== 'function') {
+      throw new TypeError('A11yCoreBuilder.installInternalsHook() requires a WebdriverIO browser.');
+    }
+    const source = internalsHookScript();
+    if (browser.isBidi && typeof browser.addInitScript === 'function') {
+      // addInitScript() takes a function, and sends its source as a BiDi
+      // preload script.
+      await browser.addInitScript(new Function(source));
+      return 'bidi';
+    }
+    if (typeof browser.sendCommandAndGetResult === 'function') {
+      await browser.sendCommandAndGetResult('Page.addScriptToEvaluateOnNewDocument', { source });
+      return 'cdp';
+    }
+    throw new Error(
+      'A11yCoreBuilder.installInternalsHook(): this session has no way to run a script before the page loads. ' +
+      'Use a WebDriver BiDi session (WebdriverIO 9\'s default, in Chrome, Edge or Firefox), or Chrome or Edge, ' +
+      'whose DevTools protocol can.'
+    );
+  }
+
   /**
    * @param {{ browser: import('webdriverio').Browser, url?: string }} opts
    *   `browser` must already be navigated to and settled at the URL to scan --
