@@ -42,6 +42,7 @@ async function single(): Promise<void> {
     .withTags(['best-practice'])
     .withPacks(definePack({ name: '@acme/a11y-rules', version: '1.0.0', namespace: 'acme', core: '^1.11.1' }))
     .elementRef(true)
+    .screenshots({ dir: 'a11y-shots', outcomes: ['fail', 'cantTell'], padding: 8, highlight: true, max: 20 })
     .analyze()) as A11yCoreResult;
 
   const version: string = result.engine.version;
@@ -60,7 +61,9 @@ async function single(): Promise<void> {
       const hosts: string[] | undefined = occurrence.shadowHostSelectors;
       const element: WebdriverIO.Element | null | undefined = occurrence.element;
       const where: string = formatOccurrenceLocation(occurrence);
-      void path; void hosts; void element; void where;
+      const shot = occurrence.screenshot;
+      const shown: string = !shot ? '' : 'path' in shot ? shot.path : 'buffer' in shot ? String(shot.buffer.byteLength) : shot.skipped;
+      void path; void hosts; void element; void where; void shown;
     }
   }
 
