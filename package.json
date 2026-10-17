@@ -47,13 +47,15 @@
     "LICENSE"
   ],
   "dependencies": {
-    "@surea11y/binding-base": "^1.5.0",
-    "@surea11y/core": "^1.12.0"
+    "@surea11y/binding-base": "^1.5.0"
   },
   "peerDependencies": {
+    "@surea11y/core": "^1.12.0 || ^2.0.0",
     "webdriverio": ">=8.0.0"
   },
   "devDependencies": {
+    "@surea11y/core": "github:SureA11y/core#en301549-pack",
+    "@surea11y/pack-en301549": "github:SureA11y/pack-en301549#en301549-pack",
     "@wdio/cli": "^9.32.0",
     "@wdio/local-runner": "^9.32.0",
     "@wdio/mocha-framework": "^9.32.0",
