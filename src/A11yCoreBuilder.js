@@ -258,8 +258,15 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
     const scanCurrent = async (scope, path) => {
       const frameUrl = this._url || (await this._browser.execute(() => document.location.href));
       if (packScript) await this._browser.execute(packScript);
+      // The text of the style sheets the frame can't read, fetched from Node
+      // (binding-base 1.6.0 and core 1.14.0; nothing with older ones), in the frame
+      // the browser is in.
+      const frameEngineOptions =
+        typeof this._styleSheetEngineOptions === 'function'
+          ? await this._styleSheetEngineOptions(null, engineOptions)
+          : engineOptions;
       const result = rethrowEngineError(
-        await this._browser.execute(inPageScan, frameUrl, scope, engineOptions, runOnly)
+        await this._browser.execute(inPageScan, frameUrl, scope, frameEngineOptions, runOnly)
       );
       this._warnScanGaps(result, '@surea11y/webdriverio');
       // Element references first: they are resolved in the current frame,
@@ -404,7 +411,8 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
 
   /** For binding-base's screenshots step: runs `fn(...args)` in the frame at `path`. */
   async _evaluateInFrame(path, fn, args) {
-    await this._switchToPath(path);
+    // null: the frame the browser is in, as Selenium's binding reads it.
+    if (path !== null) await this._switchToPath(path);
     return this._browser.execute(fn, ...args);
   }
 
