@@ -1154,3 +1154,78 @@ test('A11yCoreBuilder: plannedChecks() and plannedCriteria() list what analyze()
   assert.deepStrictEqual(ids(builder.plannedChecks(), 'ruleId'), ids(results.checksResults, 'ruleId'));
   assert.deepStrictEqual(ids(builder.plannedCriteria(), 'id'), ids(results.rulesResults, 'ruleId'));
 });
+
+// --- @surea11y/core 1.14 -------------------------------------------------------------
+
+// The listener hook needs @surea11y/core 1.14.0, and its note
+// @surea11y/binding-base 1.6.0; these tests are skipped with older ones.
+const HAS_LISTENER_HOOK = typeof require('@surea11y/core').listenerHookScript === 'function';
+const HAS_LISTENER_NOTE = require('@surea11y/binding-base').getScanNotes({
+  checksResults: [{ outcome: 'cantTell', occurrences: [{ selector: 'div', data: { details: { reasonCode: 'CLICK_HANDLER_NO_KEY_HANDLER' } } }] }]
+}).some((n) => n.kind === 'listener-hook');
+const NEEDS_HOOK = !HAS_LISTENER_HOOK && 'needs @surea11y/core 1.14.0';
+const NEEDS_NOTE = !(HAS_LISTENER_HOOK && HAS_LISTENER_NOTE) && 'needs @surea11y/core 1.14.0 and @surea11y/binding-base 1.6.0';
+
+// A custom button given its click listener from script, with no key listener
+// anywhere: Enter and Space do nothing. Without the listener hook the scan
+// can't see the listener; with it, the button fails.
+const SCRIPTED_BUTTON = 'data:text/html,' + encodeURIComponent(
+  '<!doctype html><html lang="en"><head><title>t</title></head><body><main><h1>Hi</h1>' +
+  '<div id="save" role="button" tabindex="0">Save</div>' +
+  "<script>document.getElementById('save').addEventListener('click', () => {});</script>" +
+  '</main></body></html>'
+);
+
+function listenerFinding(result) {
+  const check = result.checksResults.find((r) => r.ruleId === 'click-handler-keyboard-operable');
+  return [check.outcome, check.occurrences.map((o) => o.data.details.reasonCode)];
+}
+
+test('A11yCoreBuilder.installListenerHook(): a button given its click listener from script is unseen without it, and fails with it, through BiDi or the DevTools protocol', { skip: NEEDS_HOOK }, async () => {
+  await browser.url(SCRIPTED_BUTTON);
+  const before = await new A11yCoreBuilder({ browser }).withRules('click-handler-keyboard-operable').analyze();
+  assert.strictEqual(outcomeOf(before, 'click-handler-keyboard-operable'), 'notApplicable');
+  assert.strictEqual(before.engine.environment.listenerHook, undefined);
+
+  for (const [bidi, how] of [[true, 'bidi'], [false, 'cdp']]) {
+    const session = await ownSession({ bidi });
+    try {
+      assert.strictEqual(await A11yCoreBuilder.installListenerHook(session), how);
+      assert.strictEqual(await A11yCoreBuilder.installInternalsHook(session), how);
+      await session.url(SCRIPTED_BUTTON);
+      const after = await new A11yCoreBuilder({ browser: session }).withRules('click-handler-keyboard-operable').analyze();
+      assert.strictEqual(after.engine.environment.listenerHook, 'early', how);
+      assert.strictEqual(after.engine.environment.internalsHook, 'early', how);
+      assert.deepStrictEqual(listenerFinding(after), ['fail', ['CLICK_HANDLER_NO_KEY_LISTENER']], how);
+    } finally {
+      await session.deleteSession();
+    }
+  }
+});
+
+test('A11yCoreBuilder.installListenerHook() rejects a session with no before-load script, and anything but a browser', async () => {
+  const classic = { isBidi: false, execute() {} };
+  // With a core too old to have the hook, that is what the call says first.
+  await assert.rejects(
+    () => A11yCoreBuilder.installListenerHook(classic),
+    HAS_LISTENER_HOOK
+      ? /installListenerHook\(\): this session has no way to run a script before the page loads/
+      : /needs @surea11y\/core 1\.14\.0 or later/
+  );
+  for (const bad of [undefined, null, {}]) {
+    await assert.rejects(() => A11yCoreBuilder.installListenerHook(bad), TypeError);
+  }
+});
+
+test('A11yCoreBuilder: without the listener hook, analyze() says once per scan that it would let the engine judge those handlers', { skip: NEEDS_NOTE }, async (t) => {
+  const warnings = [];
+  t.mock.method(console, 'warn', (msg) => { warnings.push(String(msg)); });
+  await browser.url('data:text/html,' + encodeURIComponent(
+    '<!doctype html><html lang="en"><head><title>t</title></head><body><main><h1>Hi</h1>' +
+    '<div role="button" tabindex="0" onclick="void save()">Save</div></main></body></html>'
+  ));
+  await new A11yCoreBuilder({ browser }).withRules('click-handler-keyboard-operable').analyze();
+  const notes = warnings.filter((w) => /element was asked about because the scan could not see/.test(w));
+  assert.strictEqual(notes.length, 1, JSON.stringify(warnings));
+  assert.match(notes[0], /installListenerHook\(\)/);
+});

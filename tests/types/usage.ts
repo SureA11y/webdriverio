@@ -27,6 +27,8 @@ declare const browser: WebdriverIO.Browser;
 
 async function single(): Promise<void> {
   const how: 'bidi' | 'cdp' = await A11yCoreBuilder.installInternalsHook(browser);
+  const listenerHow: 'bidi' | 'cdp' = await A11yCoreBuilder.installListenerHook(browser);
+  void listenerHow;
   void how;
   const planned = new A11yCoreBuilder({ browser }).withWcag('2.2', 'aa').wcagLevel('aa');
   const plannedIds: string[] = planned.plannedChecks().map((c) => c.ruleId).concat(planned.plannedCriteria().map((r) => r.id));

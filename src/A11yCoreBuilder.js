@@ -1,6 +1,6 @@
 'use strict';
 
-const { runa11yCoreInPage, internalsHookScript } = require('@surea11y/core');
+const { runa11yCoreInPage, internalsHookScript, listenerHookScript } = require('@surea11y/core');
 const {
   A11yCoreBuilderBase,
   createInPageScan,
@@ -15,6 +15,34 @@ const {
 // which carries only an error's message. Self-contained, so WebdriverIO
 // serializes it exactly as it serialized runa11yCoreInPage.
 const inPageScan = createInPageScan(runa11yCoreInPage);
+
+// Runs `getSource()`'s script in every frame of the browser's pages, before
+// their own scripts and after each navigation: browser.addInitScript() when
+// the session speaks WebDriver BiDi (WebdriverIO 9's default), else the
+// DevTools protocol's Page.addScriptToEvaluateOnNewDocument through
+// chromedriver on Chrome and Edge. Any other session is rejected. `method`
+// names the static method in its errors. Resolves to 'bidi' or 'cdp'.
+async function installBeforeLoad(browser, method, getSource) {
+  if (!browser || typeof browser.execute !== 'function') {
+    throw new TypeError(`A11yCoreBuilder.${method}() requires a WebdriverIO browser.`);
+  }
+  const source = getSource();
+  if (browser.isBidi && typeof browser.addInitScript === 'function') {
+    // addInitScript() takes a function, and sends its source as a BiDi
+    // preload script.
+    await browser.addInitScript(new Function(source));
+    return 'bidi';
+  }
+  if (typeof browser.sendCommandAndGetResult === 'function') {
+    await browser.sendCommandAndGetResult('Page.addScriptToEvaluateOnNewDocument', { source });
+    return 'cdp';
+  }
+  throw new Error(
+    `A11yCoreBuilder.${method}(): this session has no way to run a script before the page loads. ` +
+    'Use a WebDriver BiDi session (WebdriverIO 9\'s default, in Chrome, Edge or Firefox), or Chrome or Edge, ' +
+    'whose DevTools protocol can.'
+  );
+}
 
 /**
  * WebdriverIO binding for surea11y -- scans a real, already-rendered page.
@@ -181,25 +209,27 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
    * @returns {Promise<'bidi' | 'cdp'>}
    */
   static async installInternalsHook(browser) {
-    if (!browser || typeof browser.execute !== 'function') {
-      throw new TypeError('A11yCoreBuilder.installInternalsHook() requires a WebdriverIO browser.');
-    }
-    const source = internalsHookScript();
-    if (browser.isBidi && typeof browser.addInitScript === 'function') {
-      // addInitScript() takes a function, and sends its source as a BiDi
-      // preload script.
-      await browser.addInitScript(new Function(source));
-      return 'bidi';
-    }
-    if (typeof browser.sendCommandAndGetResult === 'function') {
-      await browser.sendCommandAndGetResult('Page.addScriptToEvaluateOnNewDocument', { source });
-      return 'cdp';
-    }
-    throw new Error(
-      'A11yCoreBuilder.installInternalsHook(): this session has no way to run a script before the page loads. ' +
-      'Use a WebDriver BiDi session (WebdriverIO 9\'s default, in Chrome, Edge or Firefox), or Chrome or Edge, ' +
-      'whose DevTools protocol can.'
-    );
+    return installBeforeLoad(browser, 'installInternalsHook', () => internalsHookScript());
+  }
+
+  /**
+   * Installs @surea11y/core's opt-in listener hook (core 1.14.0 and later),
+   * so the keyboard rules see the click, key, focus and mouse listeners a
+   * page adds from script (addEventListener, or an onclick-style property),
+   * not only inline handler attributes. Call it before browser.url(). It is
+   * installed as installInternalsHook() is: browser.addInitScript() in a
+   * BiDi session, else the DevTools protocol on Chrome and Edge, else it
+   * rejects. Resolves to the way it was installed, 'bidi' or 'cdp'.
+   * @param {WebdriverIO.Browser} browser
+   * @returns {Promise<'bidi' | 'cdp'>}
+   */
+  static async installListenerHook(browser) {
+    return installBeforeLoad(browser, 'installListenerHook', () => {
+      if (typeof listenerHookScript !== 'function') {
+        throw new TypeError('A11yCoreBuilder.installListenerHook() needs @surea11y/core 1.14.0 or later, which has listenerHookScript().');
+      }
+      return listenerHookScript();
+    });
   }
 
   /**
