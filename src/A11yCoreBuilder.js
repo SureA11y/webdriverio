@@ -1,13 +1,20 @@
 'use strict';
 
-const { runa11yCoreInPage, internalsHookScript } = require('@surea11y/core');
+const {
+  runa11yCoreInPage,
+  internalsHookScript,
+  listenerHookScript,
+  liveRegionHookScript,
+  getAnnouncements
+} = require('@surea11y/core');
 const {
   A11yCoreBuilderBase,
   createInPageScan,
   rethrowEngineError,
   queryOccurrenceElement,
   planScreenshots,
-  cropViewportScreenshot
+  cropViewportScreenshot,
+  createInPageAnnouncements
 } = require('@surea11y/binding-base');
 
 // core's runa11yCoreInPage, wrapped so an engine error (INVALID_RUN_ONLY,
@@ -15,6 +22,34 @@ const {
 // which carries only an error's message. Self-contained, so WebdriverIO
 // serializes it exactly as it serialized runa11yCoreInPage.
 const inPageScan = createInPageScan(runa11yCoreInPage);
+
+// Runs `getSource()`'s script in every frame of the browser's pages, before
+// their own scripts and after each navigation: browser.addInitScript() when
+// the session speaks WebDriver BiDi (WebdriverIO 9's default), else the
+// DevTools protocol's Page.addScriptToEvaluateOnNewDocument through
+// chromedriver on Chrome and Edge. Any other session is rejected. `method`
+// names the static method in its errors. Resolves to 'bidi' or 'cdp'.
+async function installBeforeLoad(browser, method, getSource) {
+  if (!browser || typeof browser.execute !== 'function') {
+    throw new TypeError(`A11yCoreBuilder.${method}() requires a WebdriverIO browser.`);
+  }
+  const source = getSource();
+  if (browser.isBidi && typeof browser.addInitScript === 'function') {
+    // addInitScript() takes a function, and sends its source as a BiDi
+    // preload script.
+    await browser.addInitScript(new Function(source));
+    return 'bidi';
+  }
+  if (typeof browser.sendCommandAndGetResult === 'function') {
+    await browser.sendCommandAndGetResult('Page.addScriptToEvaluateOnNewDocument', { source });
+    return 'cdp';
+  }
+  throw new Error(
+    `A11yCoreBuilder.${method}(): this session has no way to run a script before the page loads. ` +
+    'Use a WebDriver BiDi session (WebdriverIO 9\'s default, in Chrome, Edge or Firefox), or Chrome or Edge, ' +
+    'whose DevTools protocol can.'
+  );
+}
 
 /**
  * WebdriverIO binding for surea11y -- scans a real, already-rendered page.
@@ -181,25 +216,67 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
    * @returns {Promise<'bidi' | 'cdp'>}
    */
   static async installInternalsHook(browser) {
+    return installBeforeLoad(browser, 'installInternalsHook', () => internalsHookScript());
+  }
+
+  /**
+   * Installs @surea11y/core's opt-in listener hook (core 1.14.0 and later),
+   * so the keyboard rules see the click, key, focus and mouse listeners a
+   * page adds from script (addEventListener, or an onclick-style property),
+   * not only inline handler attributes. Call it before browser.url(). It is
+   * installed as installInternalsHook() is: browser.addInitScript() in a
+   * BiDi session, else the DevTools protocol on Chrome and Edge, else it
+   * rejects. Resolves to the way it was installed, 'bidi' or 'cdp'.
+   * @param {WebdriverIO.Browser} browser
+   * @returns {Promise<'bidi' | 'cdp'>}
+   */
+  static async installListenerHook(browser) {
+    return installBeforeLoad(browser, 'installListenerHook', () => {
+      if (typeof listenerHookScript !== 'function') {
+        throw new TypeError('A11yCoreBuilder.installListenerHook() needs @surea11y/core 1.14.0 or later, which has listenerHookScript().');
+      }
+      return listenerHookScript();
+    });
+  }
+
+  /**
+   * Installs @surea11y/core's opt-in live-region hook (core 1.14.0 and
+   * later), which records what the page's live regions are given from the
+   * load event on: live-region-announcements then asks about a region added
+   * with its text already in it, or shown and filled at once, and
+   * getAnnouncements() reads what the page made available to announce. Call
+   * it before browser.url(). It is installed as installInternalsHook() is.
+   * Resolves to the way it was installed, 'bidi' or 'cdp'.
+   * @param {WebdriverIO.Browser} browser
+   * @returns {Promise<'bidi' | 'cdp'>}
+   */
+  static async installLiveRegionHook(browser) {
+    return installBeforeLoad(browser, 'installLiveRegionHook', () => {
+      if (typeof liveRegionHookScript !== 'function') {
+        throw new TypeError('A11yCoreBuilder.installLiveRegionHook() needs @surea11y/core 1.14.0 or later, which has liveRegionHookScript().');
+      }
+      return liveRegionHookScript();
+    });
+  }
+
+  /**
+   * What the current page's live regions were given while shown and
+   * reachable by assistive technology, as the live-region hook recorded it:
+   * [{ text, politeness, time }] in the order the page did it, or null when
+   * the page has no hook. What the page made available to announce, not what
+   * a screen reader said. Reads the frame the browser is switched to.
+   * @param {WebdriverIO.Browser} browser
+   * @returns {Promise<Array<{ text: string, politeness: 'polite' | 'assertive', time: number }> | null>}
+   */
+  static async getAnnouncements(browser) {
     if (!browser || typeof browser.execute !== 'function') {
-      throw new TypeError('A11yCoreBuilder.installInternalsHook() requires a WebdriverIO browser.');
+      throw new TypeError('A11yCoreBuilder.getAnnouncements() requires a WebdriverIO browser (with an .execute() method).');
     }
-    const source = internalsHookScript();
-    if (browser.isBidi && typeof browser.addInitScript === 'function') {
-      // addInitScript() takes a function, and sends its source as a BiDi
-      // preload script.
-      await browser.addInitScript(new Function(source));
-      return 'bidi';
+    if (typeof getAnnouncements !== 'function' || typeof createInPageAnnouncements !== 'function') {
+      throw new TypeError('A11yCoreBuilder.getAnnouncements() needs @surea11y/core 1.14.0 and @surea11y/binding-base 1.6.0 or later.');
     }
-    if (typeof browser.sendCommandAndGetResult === 'function') {
-      await browser.sendCommandAndGetResult('Page.addScriptToEvaluateOnNewDocument', { source });
-      return 'cdp';
-    }
-    throw new Error(
-      'A11yCoreBuilder.installInternalsHook(): this session has no way to run a script before the page loads. ' +
-      'Use a WebDriver BiDi session (WebdriverIO 9\'s default, in Chrome, Edge or Firefox), or Chrome or Edge, ' +
-      'whose DevTools protocol can.'
-    );
+    const read = createInPageAnnouncements(getAnnouncements);
+    return browser.execute(`return (${read.toString()})();`);
   }
 
   /**
@@ -276,6 +353,14 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
       return result;
     };
 
+    // .conditions() (binding-base 1.6.0): the page as it is, then under each
+    // condition, merged into one result.
+    if (this._conditions) {
+      return this._applyReportOnly(
+        await this._scanUnderConditions(() => scanCurrent(contextSelector, null), this._conditionDriver())
+      );
+    }
+
     if (!this._scanFrames) {
       // Whatever frame the caller left the browser in; the screenshots step
       // can place pictures only from the top-level page (see
@@ -298,6 +383,83 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
     await this._browser.switchFrame(null).catch(() => {});
 
     return { topFrame, frames };
+  }
+
+  /**
+   * The driver steps .conditions() scans need. On Chrome and Edge, the
+   * DevTools protocol (browser.sendCommandAndGetResult(), chromedriver's
+   * own endpoint, in classic and BiDi sessions) sets the viewport's width
+   * (Emulation.setDeviceMetricsOverride, its height kept) and the color
+   * scheme (Emulation.setEmulatedMedia); browser.emulate('colorScheme')
+   * only answers matchMedia() and leaves the page's CSS as it was.
+   * Elsewhere a width resizes the window by as much, and a color scheme
+   * can't be set: that is refused before any scan. Each condition sets
+   * both, from the page as it was; at the end the overrides are cleared,
+   * the window size put back, and the page left dark if it was dark before
+   * (a scheme emulated by the caller, or the system's).
+   */
+  _conditionDriver() {
+    const browser = this._browser;
+    const cdp = browser.isChromium !== false && typeof browser.sendCommandAndGetResult === 'function';
+    const send = (cmd, params) => browser.sendCommandAndGetResult(cmd, params);
+    let viewport = null;
+    let size = null;
+    let widthSet = false;
+    let schemeSet = false;
+    // The scheme a condition without one goes back to.
+    let baseScheme = '';
+    const scheme = (value) => send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value }] });
+    const resetWidth = () =>
+      cdp ? send('Emulation.clearDeviceMetricsOverride', {}) : browser.setWindowSize(size.width, size.height);
+    return {
+      save: async () => {
+        if (!cdp && this._conditions.some((c) => c.colorScheme)) {
+          throw new Error(
+            'A11yCoreBuilder.conditions(): a colorScheme needs Chrome or Edge, whose DevTools protocol can emulate it; ' +
+            'this session has no browser.sendCommandAndGetResult().'
+          );
+        }
+        const before = await browser.execute(() => ({
+          width: window.innerWidth,
+          height: window.innerHeight,
+          dark: window.matchMedia('(prefers-color-scheme: dark)').matches
+        }));
+        viewport = { width: before.width, height: before.height };
+        baseScheme = before.dark ? 'dark' : '';
+        if (!cdp) size = await browser.getWindowSize();
+        return { viewport, size };
+      },
+      apply: async (condition) => {
+        if (condition.width) {
+          if (cdp) {
+            await send('Emulation.setDeviceMetricsOverride', {
+              width: condition.width,
+              height: viewport.height,
+              deviceScaleFactor: 0,
+              mobile: false
+            });
+          } else {
+            await browser.setWindowSize(size.width - viewport.width + condition.width, size.height);
+          }
+          widthSet = true;
+        } else if (widthSet) {
+          await resetWidth();
+          widthSet = false;
+        }
+        if (condition.colorScheme) {
+          await scheme(condition.colorScheme);
+          schemeSet = true;
+        } else if (schemeSet) {
+          await scheme(baseScheme);
+          schemeSet = false;
+        }
+      },
+      restore: async (state) => {
+        if (!state) return;
+        if (widthSet) await resetWidth();
+        if (schemeSet) await scheme(baseScheme);
+      }
+    };
   }
 
   /**

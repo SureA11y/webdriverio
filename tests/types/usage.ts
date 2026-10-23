@@ -7,7 +7,9 @@ import {
   getScanNotes,
   formatOccurrenceLocation,
   EngineError,
-  ENGINE_ERROR_CODES
+  ENGINE_ERROR_CODES,
+  getGatingFailures,
+  SEVERITIES
 } from '../../src/index.js';
 import type {
   A11yCoreResult,
@@ -27,6 +29,11 @@ declare const browser: WebdriverIO.Browser;
 
 async function single(): Promise<void> {
   const how: 'bidi' | 'cdp' = await A11yCoreBuilder.installInternalsHook(browser);
+  const listenerHow: 'bidi' | 'cdp' = await A11yCoreBuilder.installListenerHook(browser);
+  const liveRegionHow: 'bidi' | 'cdp' = await A11yCoreBuilder.installLiveRegionHook(browser);
+  const said = await A11yCoreBuilder.getAnnouncements(browser);
+  const texts: string[] = (said || []).map((a) => `${a.politeness}: ${a.text}`);
+  void listenerHow;
   void how;
   const planned = new A11yCoreBuilder({ browser }).withWcag('2.2', 'aa').wcagLevel('aa');
   const plannedIds: string[] = planned.plannedChecks().map((c) => c.ruleId).concat(planned.plannedCriteria().map((r) => r.id));
@@ -122,3 +129,9 @@ async function errors(): Promise<void> {
 }
 
 void single; void frames; void errors;
+
+declare const gateResult: Parameters<typeof getGatingFailures>[0];
+const gatingIds: string[] = getGatingFailures(gateResult, { failOnSeverity: SEVERITIES[2] }).map((c) => c.ruleId);
+
+declare const conditionResult: A11yCoreResult;
+const seenIn: string[] = (conditionResult.checksResults[0].occurrences[0].conditions || []).concat((conditionResult.conditionRuns || []).map((r) => r.condition));
