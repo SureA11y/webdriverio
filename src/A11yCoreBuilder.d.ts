@@ -129,6 +129,14 @@ export class A11yCoreBuilder {
   static installInternalsHook(browser: WebdriverIO.Browser): Promise<'bidi' | 'cdp'>;
 
   /**
+   * Installs @surea11y/core's opt-in listener hook (core 1.14.0 and later),
+   * so the keyboard rules see the listeners a page adds from script. Call it
+   * before browser.url(); installed as installInternalsHook() is. Resolves to
+   * the way it was installed.
+   */
+  static installListenerHook(browser: WebdriverIO.Browser): Promise<'bidi' | 'cdp'>;
+
+  /**
    * Scope the scan to one region. Call multiple times for a multi-region
    * union. A selector that matches nothing scans nothing (see
    * `contextMatch`); with .frames(true) the scope applies to the top frame
@@ -177,7 +185,8 @@ export class A11yCoreBuilder {
   /**
    * Where analyze() sends each scan gap instead of console.warn: called once
    * per gap, with the result of the frame it came from, and once per scan
-   * for the internals-hook note (tell them apart by `kind`). `() => {}`
+   * for each of the internals-hook and listener-hook notes (tell them apart
+   * by `kind`). `() => {}`
    * silences them, `null` goes back to console.warn. A later call replaces it.
    */
   logger(fn: ((entry: ScanGap | ScanNote, result: A11yCoreResult) => void) | null): this;
