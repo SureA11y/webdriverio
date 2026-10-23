@@ -7,7 +7,9 @@ import {
   getScanNotes,
   formatOccurrenceLocation,
   EngineError,
-  ENGINE_ERROR_CODES
+  ENGINE_ERROR_CODES,
+  getGatingFailures,
+  SEVERITIES
 } from '../../src/index.js';
 import type {
   A11yCoreResult,
@@ -127,3 +129,6 @@ async function errors(): Promise<void> {
 }
 
 void single; void frames; void errors;
+
+declare const gateResult: Parameters<typeof getGatingFailures>[0];
+const gatingIds: string[] = getGatingFailures(gateResult, { failOnSeverity: SEVERITIES[2] }).map((c) => c.ruleId);
