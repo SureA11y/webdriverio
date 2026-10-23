@@ -353,6 +353,14 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
       return result;
     };
 
+    // .conditions() (binding-base 1.6.0): the page as it is, then under each
+    // condition, merged into one result.
+    if (this._conditions) {
+      return this._applyReportOnly(
+        await this._scanUnderConditions(() => scanCurrent(contextSelector, null), this._conditionDriver())
+      );
+    }
+
     if (!this._scanFrames) {
       // Whatever frame the caller left the browser in; the screenshots step
       // can place pictures only from the top-level page (see
@@ -375,6 +383,83 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
     await this._browser.switchFrame(null).catch(() => {});
 
     return { topFrame, frames };
+  }
+
+  /**
+   * The driver steps .conditions() scans need. On Chrome and Edge, the
+   * DevTools protocol (browser.sendCommandAndGetResult(), chromedriver's
+   * own endpoint, in classic and BiDi sessions) sets the viewport's width
+   * (Emulation.setDeviceMetricsOverride, its height kept) and the color
+   * scheme (Emulation.setEmulatedMedia); browser.emulate('colorScheme')
+   * only answers matchMedia() and leaves the page's CSS as it was.
+   * Elsewhere a width resizes the window by as much, and a color scheme
+   * can't be set: that is refused before any scan. Each condition sets
+   * both, from the page as it was; at the end the overrides are cleared,
+   * the window size put back, and the page left dark if it was dark before
+   * (a scheme emulated by the caller, or the system's).
+   */
+  _conditionDriver() {
+    const browser = this._browser;
+    const cdp = browser.isChromium !== false && typeof browser.sendCommandAndGetResult === 'function';
+    const send = (cmd, params) => browser.sendCommandAndGetResult(cmd, params);
+    let viewport = null;
+    let size = null;
+    let widthSet = false;
+    let schemeSet = false;
+    // The scheme a condition without one goes back to.
+    let baseScheme = '';
+    const scheme = (value) => send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value }] });
+    const resetWidth = () =>
+      cdp ? send('Emulation.clearDeviceMetricsOverride', {}) : browser.setWindowSize(size.width, size.height);
+    return {
+      save: async () => {
+        if (!cdp && this._conditions.some((c) => c.colorScheme)) {
+          throw new Error(
+            'A11yCoreBuilder.conditions(): a colorScheme needs Chrome or Edge, whose DevTools protocol can emulate it; ' +
+            'this session has no browser.sendCommandAndGetResult().'
+          );
+        }
+        const before = await browser.execute(() => ({
+          width: window.innerWidth,
+          height: window.innerHeight,
+          dark: window.matchMedia('(prefers-color-scheme: dark)').matches
+        }));
+        viewport = { width: before.width, height: before.height };
+        baseScheme = before.dark ? 'dark' : '';
+        if (!cdp) size = await browser.getWindowSize();
+        return { viewport, size };
+      },
+      apply: async (condition) => {
+        if (condition.width) {
+          if (cdp) {
+            await send('Emulation.setDeviceMetricsOverride', {
+              width: condition.width,
+              height: viewport.height,
+              deviceScaleFactor: 0,
+              mobile: false
+            });
+          } else {
+            await browser.setWindowSize(size.width - viewport.width + condition.width, size.height);
+          }
+          widthSet = true;
+        } else if (widthSet) {
+          await resetWidth();
+          widthSet = false;
+        }
+        if (condition.colorScheme) {
+          await scheme(condition.colorScheme);
+          schemeSet = true;
+        } else if (schemeSet) {
+          await scheme(baseScheme);
+          schemeSet = false;
+        }
+      },
+      restore: async (state) => {
+        if (!state) return;
+        if (widthSet) await resetWidth();
+        if (schemeSet) await scheme(baseScheme);
+      }
+    };
   }
 
   /**

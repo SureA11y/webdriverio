@@ -1274,3 +1274,84 @@ test('A11yCoreBuilder: without the listener hook, analyze() says once per scan t
   assert.strictEqual(notes.length, 1, JSON.stringify(warnings));
   assert.match(notes[0], /installListenerHook\(\)/);
 });
+
+const HAS_CONDITIONS = typeof require('@surea11y/binding-base').mergeConditionResults === 'function';
+const NEEDS_CONDITIONS = !HAS_CONDITIONS && 'needs @surea11y/binding-base 1.6.0';
+// Reads well in the light scheme; in the dark one its text is #444 on #222.
+const DARK_CONTRAST = 'data:text/html,' + encodeURIComponent(
+  '<!doctype html><html lang="en"><head><title>t</title><style>' +
+  'body { color: #111; background: #fff } ' +
+  '@media (prefers-color-scheme: dark) { body { color: #444; background: #222 } }' +
+  '</style></head><body><main><h1>Hi</h1><p id="note">Read me</p></main></body></html>'
+);
+const isDark = (b) => b.execute(() => window.matchMedia('(prefers-color-scheme: dark)').matches);
+
+test('A11yCoreBuilder.conditions(): a failure only in dark mode fails the merged result, labelled, and the page is put back, in classic and BiDi sessions', { skip: NEEDS_CONDITIONS }, async () => {
+  for (const bidi of [false, true]) {
+    const how = bidi ? 'BiDi' : 'classic';
+    const session = await ownSession({ bidi });
+    try {
+      await session.url(DARK_CONTRAST);
+      const before = await session.execute(() => window.innerWidth);
+      const results = await new A11yCoreBuilder({ browser: session })
+        .withRules('contrast-minimum')
+        .conditions([{ colorScheme: 'dark' }, { width: 320 }])
+        .analyze();
+      const check = results.checksResults.find((r) => r.ruleId === 'contrast-minimum');
+      assert.strictEqual(check.outcome, 'fail', how);
+      assert.ok(check.occurrences.length > 0, how);
+      for (const o of check.occurrences) assert.deepStrictEqual(o.conditions, ['dark'], how);
+      assert.deepStrictEqual(
+        results.conditionRuns.map((r) => [r.condition, r.environment.colorScheme]),
+        [['default', 'light'], ['dark', 'dark'], ['width 320', 'light']],
+        how
+      );
+      assert.strictEqual(results.conditionRuns[2].environment.viewport.width, 320, how);
+      assert.strictEqual(await session.execute(() => window.innerWidth), before, how);
+      assert.strictEqual(await isDark(session), false, how);
+    } finally {
+      await session.deleteSession();
+    }
+  }
+});
+
+test('A11yCoreBuilder.conditions(): a dark scheme the caller emulated stays dark, and a width-only condition scans in it', { skip: NEEDS_CONDITIONS }, async () => {
+  await browser.url(DARK_CONTRAST);
+  await browser.sendCommandAndGetResult('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'dark' }] });
+  try {
+    const results = await new A11yCoreBuilder({ browser })
+      .withRules('contrast-minimum')
+      .conditions([{ colorScheme: 'light' }, { width: 320 }])
+      .analyze();
+    assert.deepStrictEqual(
+      results.conditionRuns.map((r) => [r.condition, r.environment.colorScheme]),
+      [['default', 'dark'], ['light', 'light'], ['width 320', 'dark']]
+    );
+    assert.strictEqual(await isDark(browser), true);
+  } finally {
+    await browser.sendCommandAndGetResult('Emulation.setEmulatedMedia', { features: [] });
+  }
+});
+
+test('A11yCoreBuilder.conditions(): without the DevTools protocol, a color scheme is refused before any scan and a width resizes the window', { skip: NEEDS_CONDITIONS }, async () => {
+  let scripts = 0;
+  const sizes = [];
+  const fake = {
+    isChromium: false,
+    execute: async () => { scripts += 1; return { width: 1000, height: 700, dark: false }; },
+    getWindowSize: async () => ({ width: 1016, height: 800 }),
+    setWindowSize: async (width, height) => { sizes.push([width, height]); }
+  };
+  const dark = new A11yCoreBuilder({ browser: fake }).conditions([{ colorScheme: 'dark' }]);
+  await assert.rejects(dark._scanUnderConditions(async () => ({ checksResults: [] }), dark._conditionDriver()), /a colorScheme needs Chrome or Edge/);
+  assert.strictEqual(scripts, 0);
+  const narrow = new A11yCoreBuilder({ browser: fake }).conditions([{ width: 320 }]);
+  await narrow._scanUnderConditions(async () => ({ checksResults: [] }), narrow._conditionDriver());
+  assert.deepStrictEqual(sizes, [[336, 800], [1016, 800]]);
+});
+
+test('A11yCoreBuilder.conditions(): checks its list, and refuses frames(true) beside it', { skip: NEEDS_CONDITIONS }, async () => {
+  const builder = new A11yCoreBuilder({ browser: { execute() {}, async switchFrame() {} } });
+  assert.throws(() => builder.conditions([{ colorScheme: 'sepia' }]), TypeError);
+  await assert.rejects(builder.conditions([{ width: 320 }]).frames(true).analyze(), /can't be combined yet/);
+});
