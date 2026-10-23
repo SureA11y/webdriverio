@@ -129,6 +129,20 @@ See `examples/e2e-test-example.test.js` for a fuller, runnable version (`npm run
 
 Note the gate above uses `node:assert`, not WebdriverIO's bundled `expect`: WebdriverIO's `expect` takes **at most one argument** — there's no `expect(value, message)` custom-failure-message overload the way Playwright's `expect` has — so `node:assert`'s message parameter is what carries `formatFailures()`' readable block onto a failed assertion.
 
+### Failing only on serious problems
+
+Every rule result has a severity: `critical`, `serious`, `moderate` or `minor` (a profile can set its own). To start by blocking on serious problems while the rest are still reported, gate on `getGatingFailures(results, { failOnSeverity })` (`@surea11y/binding-base` 1.6.0 and later): the failing rules at that level or above, the same ones `surea11y scan --fail-on-severity` counts for the page. `formatFailures()` takes the same option and still lists the failures below the level, marked as ones that don't fail the test.
+
+```js
+const { A11yCoreBuilder, formatFailures, getGatingFailures } = require('@surea11y/webdriverio');
+
+const results = await new A11yCoreBuilder({ browser }).analyze();
+const gate = { failOnSeverity: 'serious' };
+assert.deepStrictEqual(getGatingFailures(results, gate), [], formatFailures(results, gate));
+```
+
+`fail` keeps its meaning, a definite violation; the level only picks which failures stop the test, and every failure stays in `results`. A level that isn't one of the four throws a `TypeError`. `SEVERITIES` lists them, least to most severe.
+
 ### Readable console/CI output on failure
 
 A bare length/equality assertion alone gets you a *working* gate, but the failure message is a raw, deeply-nested object diff — hundreds of lines for a handful of violations. `formatFailures(results)` turns that into a short, scannable block (one entry per occurrence, numbered, with rule ID/severity/location/hint) that you hand to your assertion library's own failure-message parameter, as above. Given the whole result, it also says what the scan left out and which `@surea11y/core` release ran it. A real failure then prints:

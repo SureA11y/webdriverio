@@ -7,7 +7,9 @@ const {
   ENGINE_ERROR_CODES,
   getScanGaps,
   getScanNotes,
-  formatOccurrenceLocation
+  formatOccurrenceLocation,
+  getGatingFailures,
+  SEVERITIES
 } = require('@surea11y/binding-base');
 
 module.exports = {
@@ -17,5 +19,7 @@ module.exports = {
   ENGINE_ERROR_CODES,
   getScanGaps,
   getScanNotes,
-  formatOccurrenceLocation
+  formatOccurrenceLocation,
+  getGatingFailures,
+  SEVERITIES
 };
