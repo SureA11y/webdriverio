@@ -1217,6 +1217,51 @@ test('A11yCoreBuilder.installListenerHook() rejects a session with no before-loa
   }
 });
 
+const HAS_LIVE_REGION_HOOK = typeof require('@surea11y/core').liveRegionHookScript === 'function';
+const HAS_ANNOUNCEMENTS = typeof require('@surea11y/binding-base').createInPageAnnouncements === 'function';
+const NEEDS_LIVE_REGIONS =
+  !(HAS_LIVE_REGION_HOOK && HAS_ANNOUNCEMENTS) && 'needs @surea11y/core 1.14.0 and @surea11y/binding-base 1.6.0';
+const LIVE_REGIONS = 'data:text/html,' + encodeURIComponent(
+  '<!doctype html><html lang="en"><head><title>t</title></head><body><main><h1>Hi</h1>' +
+  '<div id="status" role="status"></div><div id="toasts"></div></main></body></html>'
+);
+
+test('A11yCoreBuilder.installLiveRegionHook(): getAnnouncements() reads what live regions were given, and a region added with its text is asked about, through BiDi or the DevTools protocol', { skip: NEEDS_LIVE_REGIONS }, async () => {
+  await browser.url(LIVE_REGIONS);
+  assert.strictEqual(await A11yCoreBuilder.getAnnouncements(browser), null);
+
+  for (const [bidi, how] of [[true, 'bidi'], [false, 'cdp']]) {
+    const session = await ownSession({ bidi });
+    try {
+      assert.strictEqual(await A11yCoreBuilder.installLiveRegionHook(session), how);
+      await session.url(LIVE_REGIONS);
+      await session.execute("document.getElementById('status').textContent = 'Saved';");
+      await session.execute("document.getElementById('toasts').innerHTML = '<div role=\"status\">Copied</div>';");
+      const said = await A11yCoreBuilder.getAnnouncements(session);
+      assert.deepStrictEqual(said.map((a) => [a.text, a.politeness]), [['Saved', 'polite']], how);
+      assert.strictEqual(typeof said[0].time, 'number', how);
+
+      const results = await new A11yCoreBuilder({ browser: session }).withRules('live-region-announcements').analyze();
+      assert.strictEqual(results.engine.environment.liveRegionHook, 'early', how);
+      const check = results.checksResults.find((r) => r.ruleId === 'live-region-announcements');
+      assert.deepStrictEqual(
+        check.occurrences.map((o) => [o.data.details.reasonCode, o.data.details.text]),
+        [['LIVE_REGION_INSERTED_WITH_CONTENT', 'Copied']],
+        how
+      );
+    } finally {
+      await session.deleteSession();
+    }
+  }
+});
+
+test('A11yCoreBuilder.installLiveRegionHook() and getAnnouncements() reject what they cannot use', async () => {
+  for (const bad of [undefined, null, {}]) {
+    await assert.rejects(() => A11yCoreBuilder.installLiveRegionHook(bad), TypeError);
+    await assert.rejects(() => A11yCoreBuilder.getAnnouncements(bad), TypeError);
+  }
+});
+
 test('A11yCoreBuilder: without the listener hook, analyze() says once per scan that it would let the engine judge those handlers', { skip: NEEDS_NOTE }, async (t) => {
   const warnings = [];
   t.mock.method(console, 'warn', (msg) => { warnings.push(String(msg)); });
