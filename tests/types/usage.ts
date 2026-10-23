@@ -28,6 +28,9 @@ declare const browser: WebdriverIO.Browser;
 async function single(): Promise<void> {
   const how: 'bidi' | 'cdp' = await A11yCoreBuilder.installInternalsHook(browser);
   const listenerHow: 'bidi' | 'cdp' = await A11yCoreBuilder.installListenerHook(browser);
+  const liveRegionHow: 'bidi' | 'cdp' = await A11yCoreBuilder.installLiveRegionHook(browser);
+  const said = await A11yCoreBuilder.getAnnouncements(browser);
+  const texts: string[] = (said || []).map((a) => `${a.politeness}: ${a.text}`);
   void listenerHow;
   void how;
   const planned = new A11yCoreBuilder({ browser }).withWcag('2.2', 'aa').wcagLevel('aa');
