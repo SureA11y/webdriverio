@@ -886,7 +886,7 @@ test('A11yCoreBuilder: elementRef(true) resolves an occurrence inside a shadow t
   assert.strictEqual(rule.outcome, 'fail');
   assert.strictEqual(rule.occurrences.length, 1);
   const [occurrence] = rule.occurrences;
-  assert.strictEqual(occurrence.selector, 'p > img');
+  assert.strictEqual(occurrence.selector, 'p:not(* > *) > img');
   assert.deepStrictEqual(occurrence.shadowHostSelectors, ['#host']);
   assert.strictEqual(occurrence.structuralPath, null);
   assert.ok(occurrence.element, 'occurrence should carry a live WebdriverIO.Element');

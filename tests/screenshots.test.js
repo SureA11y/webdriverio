@@ -64,7 +64,7 @@ const CHILD = `<!doctype html><html lang="en"><head><title>Child</title></head><
 const COLOURS = {
   '#top': [255, 165, 0],
   '#inner': [0, 128, 0],
-  'html > body > main > x-card >>> img': [128, 0, 128],
+  'html > body > main > x-card >>> img:not(* > *)': [128, 0, 128],
   '#framed': [0, 128, 128]
 };
 
@@ -162,7 +162,7 @@ async function checkFullScan(b) {
   const top = results.topFrame.checksResults.find((c) => c.ruleId === 'img-alt-present');
   const found = new Map(top.occurrences.map((o) => [where(o), o]));
   const get = (name) => found.get(name) || assert.fail(`${name} is not among the findings: ${[...found.keys()].join(', ')}`);
-  for (const name of ['#top', '#inner', 'html > body > main > x-card >>> img']) assertColour(get(name).screenshot, 2, COLOURS[name], name);
+  for (const name of ['#top', '#inner', 'html > body > main > x-card >>> img:not(* > *)']) assertColour(get(name).screenshot, 2, COLOURS[name], name);
   assert.deepStrictEqual(get('#away').screenshot, { skipped: 'off-screen' });
   const hidden = results.topFrame.checksResults.find((c) => c.ruleId === 'test-flags-hidden').occurrences[0];
   assert.deepStrictEqual(hidden.screenshot, { skipped: 'not-rendered' });
