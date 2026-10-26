@@ -16,8 +16,10 @@ import type {
   A11yCoreMultiFrameResult,
   CheckResult,
   EngineErrorCode,
+  LocatedAnnouncement,
   Occurrence,
   PackLike,
+  ReviewGroup,
   ScanGap,
   WcagLevel,
   WcagVersion
@@ -29,12 +31,17 @@ declare const browser: WebdriverIO.Browser;
 
 async function single(): Promise<void> {
   const how: 'bidi' | 'cdp' = await A11yCoreBuilder.installInternalsHook(browser);
+  void how;
   const listenerHow: 'bidi' | 'cdp' = await A11yCoreBuilder.installListenerHook(browser);
   const liveRegionHow: 'bidi' | 'cdp' = await A11yCoreBuilder.installLiveRegionHook(browser);
-  const said = await A11yCoreBuilder.getAnnouncements(browser);
-  const texts: string[] = (said || []).map((a) => `${a.politeness}: ${a.text}`);
   void listenerHow;
-  void how;
+  void liveRegionHow;
+  const said: LocatedAnnouncement[] | null = await A11yCoreBuilder.announcements(browser, { includeBehindModal: true });
+  const regions: Array<string | null> = (said ?? []).map((a) => a.selector);
+  void regions;
+  const group: ReviewGroup = 'leanFail';
+  const review: string = formatFailures([], { outcomes: ['fail', group], howToCheck: true });
+  void review;
   const planned = new A11yCoreBuilder({ browser }).withWcag('2.2', 'aa').wcagLevel('aa');
   const plannedIds: string[] = planned.plannedChecks().map((c) => c.ruleId).concat(planned.plannedCriteria().map((r) => r.id));
   void plannedIds;
