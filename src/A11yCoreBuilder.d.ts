@@ -10,8 +10,8 @@ import type {} from 'webdriverio';
 // { topFrame, frames } shape of .frames(true). The names below are the ones
 // this file has always exported.
 import type * as Core from '@surea11y/core';
-import type { PackLike, WcagVersion, WcagLevelInput, ScanGap, ScanNote, PlannedCheck, PlannedCriterion, ScreenshotOptions, OccurrenceScreenshot } from '@surea11y/binding-base';
-export type { PackLike, WcagVersion, WcagLevel, ScreenshotOptions, ScreenshotSkip, ScreenshotBox, OccurrenceScreenshot } from '@surea11y/binding-base';
+import type { PackLike, WcagVersion, WcagLevelInput, ScanGap, ScanNote, PlannedCheck, PlannedCriterion, ScreenshotOptions, OccurrenceScreenshot, LocatedAnnouncement, ReviewGroup } from '@surea11y/binding-base';
+export type { PackLike, WcagVersion, WcagLevel, ScreenshotOptions, ScreenshotSkip, ScreenshotBox, OccurrenceScreenshot, LocatedAnnouncement, ReviewGroup } from '@surea11y/binding-base';
 
 export type Outcome = Core.Outcome;
 export type OutcomeNormalized = Core.OutcomeNormalized;
@@ -133,31 +133,28 @@ export class A11yCoreBuilder {
   static installInternalsHook(browser: WebdriverIO.Browser): Promise<'bidi' | 'cdp'>;
 
   /**
-   * Installs @surea11y/core's opt-in listener hook (core 1.14.0 and later),
-   * so the keyboard rules see the listeners a page adds from script. Call it
-   * before browser.url(); installed as installInternalsHook() is. Resolves to
-   * the way it was installed.
+   * Installs @surea11y/core's opt-in listener hook, so the keyboard rules
+   * see the event listeners the page adds from script. Call it before
+   * browser.url(). Installs as installInternalsHook() does, and resolves to
+   * the way it was installed. Needs @surea11y/core 1.14.0 or later.
    */
   static installListenerHook(browser: WebdriverIO.Browser): Promise<'bidi' | 'cdp'>;
 
   /**
-   * Installs @surea11y/core's opt-in live-region hook (core 1.14.0 and
-   * later): live-region-announcements then also asks about a live region
-   * added with its text already in it, or shown and filled at once, and
-   * getAnnouncements() reads what the page made available to announce. Call
-   * it before browser.url(); installed as installInternalsHook() is.
+   * Installs @surea11y/core's opt-in live-region hook, which records what
+   * the page's live regions are given. Call it before browser.url().
+   * Installs as installInternalsHook() does, and resolves to the way it was
+   * installed. Needs @surea11y/core 1.14.0 or later.
    */
   static installLiveRegionHook(browser: WebdriverIO.Browser): Promise<'bidi' | 'cdp'>;
 
   /**
-   * What the current page's live regions were given while shown and
-   * reachable, as the live-region hook recorded it, in order; null without
-   * the hook. Not what a screen reader said. Needs core 1.14.0 and
-   * binding-base 1.6.0.
+   * What the top-level page's live regions were given since it loaded, in
+   * order, each region named by its selector; null without the live-region
+   * hook. Texts given to a region behind an open modal dialog only with
+   * `includeBehindModal: true`. Switches the browser to the top-level page.
    */
-  static getAnnouncements(
-    browser: WebdriverIO.Browser
-  ): Promise<Array<{ text: string; politeness: 'polite' | 'assertive'; time: number }> | null>;
+  static announcements(browser: WebdriverIO.Browser, options?: { includeBehindModal?: boolean }): Promise<LocatedAnnouncement[] | null>;
 
   /**
    * Scope the scan to one region. Call multiple times for a multi-region
@@ -276,12 +273,16 @@ export class A11yCoreBuilder {
  * @surea11y/core release that produced it. Meant for an assertion
  * library's failure-message parameter, e.g.
  * `assert.strictEqual(fails.length, 0, formatFailures(results))`.
- * Throws a TypeError for anything else, such as a .frames(true) result:
- * format `topFrame` and each entry of `frames` on its own.
+ * Occurrences are listed in the order a review takes: failures, then the
+ * questions that lean fail, those that lean pass, and the open ones.
+ * `outcomes` narrows by outcome or by review group; `howToCheck: true`
+ * lists each question's steps. Throws a TypeError for anything else, such
+ * as a .frames(true) result: format `topFrame` and each entry of `frames`
+ * on its own.
  */
 export function formatFailures(
   input: A11yCoreResult | ReadonlyArray<CheckResult>,
-  opts?: { outcomes?: Outcome[]; failOnSeverity?: Severity }
+  opts?: { outcomes?: Array<Outcome | ReviewGroup>; howToCheck?: boolean; failOnSeverity?: Severity }
 ): string;
 
 /** The four severities, least to most severe (@surea11y/binding-base 1.6.0 and later). */

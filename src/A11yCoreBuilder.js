@@ -1,20 +1,15 @@
 'use strict';
 
-const {
-  runa11yCoreInPage,
-  internalsHookScript,
-  listenerHookScript,
-  liveRegionHookScript,
-  getAnnouncements
-} = require('@surea11y/core');
+const core = require('@surea11y/core');
+
+const { runa11yCoreInPage } = core;
 const {
   A11yCoreBuilderBase,
   createInPageScan,
   rethrowEngineError,
   queryOccurrenceElement,
   planScreenshots,
-  cropViewportScreenshot,
-  createInPageAnnouncements
+  cropViewportScreenshot
 } = require('@surea11y/binding-base');
 
 // core's runa11yCoreInPage, wrapped so an engine error (INVALID_RUN_ONLY,
@@ -22,34 +17,6 @@ const {
 // which carries only an error's message. Self-contained, so WebdriverIO
 // serializes it exactly as it serialized runa11yCoreInPage.
 const inPageScan = createInPageScan(runa11yCoreInPage);
-
-// Runs `getSource()`'s script in every frame of the browser's pages, before
-// their own scripts and after each navigation: browser.addInitScript() when
-// the session speaks WebDriver BiDi (WebdriverIO 9's default), else the
-// DevTools protocol's Page.addScriptToEvaluateOnNewDocument through
-// chromedriver on Chrome and Edge. Any other session is rejected. `method`
-// names the static method in its errors. Resolves to 'bidi' or 'cdp'.
-async function installBeforeLoad(browser, method, getSource) {
-  if (!browser || typeof browser.execute !== 'function') {
-    throw new TypeError(`A11yCoreBuilder.${method}() requires a WebdriverIO browser.`);
-  }
-  const source = getSource();
-  if (browser.isBidi && typeof browser.addInitScript === 'function') {
-    // addInitScript() takes a function, and sends its source as a BiDi
-    // preload script.
-    await browser.addInitScript(new Function(source));
-    return 'bidi';
-  }
-  if (typeof browser.sendCommandAndGetResult === 'function') {
-    await browser.sendCommandAndGetResult('Page.addScriptToEvaluateOnNewDocument', { source });
-    return 'cdp';
-  }
-  throw new Error(
-    `A11yCoreBuilder.${method}(): this session has no way to run a script before the page loads. ` +
-    'Use a WebDriver BiDi session (WebdriverIO 9\'s default, in Chrome, Edge or Firefox), or Chrome or Edge, ' +
-    'whose DevTools protocol can.'
-  );
-}
 
 /**
  * WebdriverIO binding for surea11y -- scans a real, already-rendered page.
@@ -215,68 +182,60 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
    * @param {WebdriverIO.Browser} browser
    * @returns {Promise<'bidi' | 'cdp'>}
    */
-  static async installInternalsHook(browser) {
-    return installBeforeLoad(browser, 'installInternalsHook', () => internalsHookScript());
+  static installInternalsHook(browser) {
+    return installHook(browser, 'installInternalsHook', 'internalsHookScript');
   }
 
   /**
-   * Installs @surea11y/core's opt-in listener hook (core 1.14.0 and later),
-   * so the keyboard rules see the click, key, focus and mouse listeners a
-   * page adds from script (addEventListener, or an onclick-style property),
-   * not only inline handler attributes. Call it before browser.url(). It is
-   * installed as installInternalsHook() is: browser.addInitScript() in a
-   * BiDi session, else the DevTools protocol on Chrome and Edge, else it
-   * rejects. Resolves to the way it was installed, 'bidi' or 'cdp'.
+   * Installs @surea11y/core's opt-in listener hook, so the keyboard rules
+   * see the event listeners the page adds from script (`addEventListener`,
+   * `el.onclick = fn`), which no page script can list. Without it a
+   * `<div role="button">` given a click listener from script goes unjudged.
+   * Call it before browser.url(), as installInternalsHook(): it installs
+   * the same way, in the same sessions, and resolves to 'bidi' or 'cdp'.
+   * Needs @surea11y/core 1.14.0 or later.
    * @param {WebdriverIO.Browser} browser
    * @returns {Promise<'bidi' | 'cdp'>}
    */
-  static async installListenerHook(browser) {
-    return installBeforeLoad(browser, 'installListenerHook', () => {
-      if (typeof listenerHookScript !== 'function') {
-        throw new TypeError('A11yCoreBuilder.installListenerHook() needs @surea11y/core 1.14.0 or later, which has listenerHookScript().');
-      }
-      return listenerHookScript();
-    });
+  static installListenerHook(browser) {
+    return installHook(browser, 'installListenerHook', 'listenerHookScript');
   }
 
   /**
-   * Installs @surea11y/core's opt-in live-region hook (core 1.14.0 and
-   * later), which records what the page's live regions are given from the
-   * load event on: live-region-announcements then asks about a region added
-   * with its text already in it, or shown and filled at once, and
-   * getAnnouncements() reads what the page made available to announce. Call
-   * it before browser.url(). It is installed as installInternalsHook() is.
-   * Resolves to the way it was installed, 'bidi' or 'cdp'.
+   * Installs @surea11y/core's opt-in live-region hook, which records what
+   * the page's live regions are given while it runs: the scan then asks
+   * about a region added with its text already in it, and
+   * A11yCoreBuilder.announcements(browser) returns what the page made
+   * available to announce. Call it before browser.url(), as
+   * installInternalsHook(): it installs the same way, in the same sessions,
+   * and resolves to 'bidi' or 'cdp'. Needs @surea11y/core 1.14.0 or later.
    * @param {WebdriverIO.Browser} browser
    * @returns {Promise<'bidi' | 'cdp'>}
    */
-  static async installLiveRegionHook(browser) {
-    return installBeforeLoad(browser, 'installLiveRegionHook', () => {
-      if (typeof liveRegionHookScript !== 'function') {
-        throw new TypeError('A11yCoreBuilder.installLiveRegionHook() needs @surea11y/core 1.14.0 or later, which has liveRegionHookScript().');
-      }
-      return liveRegionHookScript();
-    });
+  static installLiveRegionHook(browser) {
+    return installHook(browser, 'installLiveRegionHook', 'liveRegionHookScript');
   }
 
   /**
-   * What the current page's live regions were given while shown and
-   * reachable by assistive technology, as the live-region hook recorded it:
-   * [{ text, politeness, time }] in the order the page did it, or null when
-   * the page has no hook. What the page made available to announce, not what
-   * a screen reader said. Reads the frame the browser is switched to.
+   * What the top-level page's live regions were given since it loaded, as
+   * the live-region hook recorded it, in order: `[{ text, politeness, time,
+   * order, behindModal, selector }]`, each region named by its selector (and
+   * `shadowHostSelectors` inside a shadow root; null for a region that has
+   * since left the page). null where installLiveRegionHook(browser) wasn't
+   * called before the page loaded. What the page made available to
+   * announce, not what a screen reader said. A text given to a region
+   * behind an open modal dialog, which assistive technology did not get, is
+   * listed only with `{ includeBehindModal: true }`, marked `behindModal`.
+   * It reads the top-level page whatever frame the browser is switched
+   * into, and leaves the browser there, as .frames(true) does. Needs
+   * @surea11y/core 1.14.0 or later.
    * @param {WebdriverIO.Browser} browser
-   * @returns {Promise<Array<{ text: string, politeness: 'polite' | 'assertive', time: number }> | null>}
+   * @param {{ includeBehindModal?: boolean }} [options]
+   * @returns {Promise<Array<object>|null>}
    */
-  static async getAnnouncements(browser) {
-    if (!browser || typeof browser.execute !== 'function') {
-      throw new TypeError('A11yCoreBuilder.getAnnouncements() requires a WebdriverIO browser (with an .execute() method).');
-    }
-    if (typeof getAnnouncements !== 'function' || typeof createInPageAnnouncements !== 'function') {
-      throw new TypeError('A11yCoreBuilder.getAnnouncements() needs @surea11y/core 1.14.0 and @surea11y/binding-base 1.6.0 or later.');
-    }
-    const read = createInPageAnnouncements(getAnnouncements);
-    return browser.execute(`return (${read.toString()})();`);
+  static announcements(browser, options) {
+    // [] is the top-level page, as _evaluateInFrame() takes a frame path.
+    return new A11yCoreBuilder({ browser })._announcementsIn([], options);
   }
 
   /**
@@ -624,6 +583,38 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
     }
     return result;
   }
+}
+
+/**
+ * Installs one of core's hook scripts (1.14.0 and later for the listener and
+ * live-region hooks) to run before the page's own scripts, in every frame
+ * and after each navigation: through browser.addInitScript() in a WebDriver
+ * BiDi session, else through chromedriver's DevTools protocol. `method`
+ * names the static method in errors. Resolves to 'bidi' or 'cdp'.
+ */
+async function installHook(browser, method, scriptName) {
+  if (!browser || typeof browser.execute !== 'function') {
+    throw new TypeError(`A11yCoreBuilder.${method}() requires a WebdriverIO browser.`);
+  }
+  if (typeof core[scriptName] !== 'function') {
+    throw new Error(`A11yCoreBuilder.${method}() needs @surea11y/core 1.14.0 or later, which has ${scriptName}().`);
+  }
+  const source = core[scriptName]();
+  if (browser.isBidi && typeof browser.addInitScript === 'function') {
+    // addInitScript() takes a function, and sends its source as a BiDi
+    // preload script.
+    await browser.addInitScript(new Function(source));
+    return 'bidi';
+  }
+  if (typeof browser.sendCommandAndGetResult === 'function') {
+    await browser.sendCommandAndGetResult('Page.addScriptToEvaluateOnNewDocument', { source });
+    return 'cdp';
+  }
+  throw new Error(
+    `A11yCoreBuilder.${method}(): this session has no way to run a script before the page loads. ` +
+    'Use a WebDriver BiDi session (WebdriverIO 9\'s default, in Chrome, Edge or Firefox), or Chrome or Edge, ' +
+    'whose DevTools protocol can.'
+  );
 }
 
 module.exports = { A11yCoreBuilder };
