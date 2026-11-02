@@ -471,7 +471,7 @@ Two other cases don't throw but leave part of the page unchecked, so a result th
 - **A custom rule that did not run**, listed with its reason in `results.skippedCustomRules`. One you excluded yourself with `.disableRules()` is listed too, with `excluded: true`, and isn't a gap.
 - **A pack that did not run**, listed with its reason in `results.skippedPacks` (see [Scanning with packs](#scanning-with-packs-standards-checklists-and-your-own-rules)).
 
-`analyze()` prints each of these with `console.warn`, and `getScanGaps(results)` returns them as `[{ kind, message, ... }]` (`kind` is `context-not-found`, `context-partly-not-found`, `custom-rule-skipped` or `pack-skipped`), so a gate can fail on them, as the E2E example above does. `formatFailures(results)` lists them too.
+`analyze()` prints each of these with `console.warn`, and `getScanGaps(results)` returns them as `[{ kind, message, ... }]` (`kind` is `context-not-found`, `context-partly-not-found`, `custom-rule-skipped`, `pack-skipped` or, with `@surea11y/core` 1.15, `profile-not-run` for a profile a scan of several did not run), so a gate can fail on them, as the E2E example above does. `formatFailures(results)` lists them too.
 
 That warning is the right default for a test run. A project that already handles gaps itself can take them over with `.logger(fn)`: `fn(gap, result)` is called once per gap, with the gap as `getScanGaps()` gives it and the result of the frame it came from, instead of `console.warn`. A scanning service that shows gaps to its users, say, can send them once to its own structured log, rather than also printing a loose line on the server's console for every scan:
 
@@ -529,6 +529,24 @@ results.engine.profile; // 'acme-web-2026'
 // A checklist's items, each one result, beside core's WCAG rollups:
 results.rulesResults.filter((r) => r.meta && r.meta.standard === 'Acme web policy');
 ```
+
+**Several profiles at once.** `.options({ profile })` also takes a list, a pack's profile beside WCAG's or another pack's (`@surea11y/core` 1.15 and later). Each profile judges the page as it would alone, and the result reads as one profile with the rules of all, in the top frame and in each frame with `.frames(true)`:
+
+```js
+const waiAria = require('@surea11y/pack-wai-aria');
+
+const results = await new A11yCoreBuilder({ browser })
+  .withPacks(waiAria)
+  .options({ profile: ['wcag22-aa', 'wai-aria-1.2'] })
+  .analyze();
+
+results.engine.profiles; // ['wcag22-aa', 'wai-aria-1.2']
+// A rule both run is one check: its outcome is the worst, and its verdicts
+// say what each profile makes of it.
+results.checksResults.find((c) => c.ruleId === 'aria-allowed-attr').verdicts;
+```
+
+A profile that didn't run is in `results.engine.profilesNotRun`, with why, and `getScanGaps()` reports it as `'profile-not-run'`. Core's [`OUTPUT_SCHEMA.md`](https://github.com/SureA11y/core/blob/main/docs/OUTPUT_SCHEMA.md#several-profiles) has the whole result.
 
 A pack's own rules appear in `checksResults` like core's, with ids that start with its namespace (`acme-no-autoplay`). Without its profile, a pack's rules run only when selected, with `.withRules()` or by a tag. `@surea11y/core`'s HTML, SARIF and JUnit reports show a standard's or a checklist's items in a section of their own. Pass an array, or call `.withPacks()` again, to scan with several packs.
 
