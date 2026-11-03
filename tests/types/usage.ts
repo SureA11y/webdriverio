@@ -95,7 +95,8 @@ async function single(): Promise<void> {
     } else if (gap.kind === 'pack-skipped') {
       const name: string | null = gap.pack.name;
       void name;
-    } else {
+    } else if ('selectors' in gap) {
+      // A gap of a kind added later, such as profile-not-run, has no selectors.
       const selectors: string[] = gap.selectors;
       void selectors;
     }
