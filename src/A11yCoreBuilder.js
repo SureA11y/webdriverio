@@ -486,6 +486,7 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
   async _scanChildFrames(path, scanCurrent, out, readingOf, above = null) {
     let childCount;
     let readings;
+    let srcs = [];
     try {
       const iframes = await this._frameElements();
       childCount = iframes.length;
@@ -493,12 +494,24 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
     } catch (e) {
       return; // can't enumerate this context's children -- nothing to recurse into
     }
+    // Each frame's address as its element gives it, read before any is
+    // scanned: one that detaches mid-scan is still named by it, as core and
+    // the other bindings name it.
+    try {
+      srcs = (await this._browser.execute(
+        typeof findFrameElements === 'function'
+          ? `return (${findFrameElements.toString()})(document).map((el) => el.src || el.getAttribute('src') || null);`
+          : 'return [...document.querySelectorAll("iframe")].map((el) => el.src || el.getAttribute("src") || null);'
+      )) || [];
+    } catch (e) {
+      srcs = [];
+    }
 
     for (let i = 0; i < childCount; i++) {
       const reading = readings[i] || {};
       if (reading.skipped) continue;
       const under = inheritFrameReading(above, reading);
-      let frameUrl = null;
+      let frameUrl = srcs[i] || null;
       try {
         // Re-establish this context from the top, then step into child i with
         // a freshly re-queried element reference.
