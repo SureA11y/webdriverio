@@ -129,8 +129,8 @@ test('formatFailures(): given a whole result, adds its scan gaps and the core re
   console.warn = () => {};
   try {
     await browser.url(
-      'data:text/html,<html><body><main><img src="x.png"></main>' +
-      '<iframe srcdoc="%3Cbutton%3E%3C/button%3E"></iframe></body></html>'
+      'data:text/html,<html><body><main><img src="x.png">' +
+      '<iframe srcdoc="%3Cbutton%3E%3C/button%3E"></iframe></main></body></html>'
     );
     await browser.waitUntil(async () => (await browser.$$('iframe')).length === 1, { timeout: 8000 });
 

@@ -3,14 +3,31 @@
 const core = require('@surea11y/core');
 
 const { runa11yCoreInPage } = core;
+const bindingBase = require('@surea11y/binding-base');
 const {
   A11yCoreBuilderBase,
   createInPageScan,
   rethrowEngineError,
   queryOccurrenceElement,
   planScreenshots,
-  cropViewportScreenshot
-} = require('@surea11y/binding-base');
+  cropViewportScreenshot,
+  // How .frames(true) finds and reads each frame (binding-base 1.7 and later).
+  findFrameElements,
+  readFrameElement,
+  isFrameDocumentEmpty,
+  frameReadingOptions
+} = bindingBase;
+const frameEngineOptions = bindingBase.frameEngineOptions || ((engineOptions) => engineOptions);
+
+// One step of a screenshot's frame path: the frame at `index` among its
+// parent document's frames, as _frameElements() lists them. Element
+// references don't survive switching away and back under BiDi, so
+// _evaluateInFrame() finds the element again once it is in that document.
+class FrameElementAt {
+  constructor(index) {
+    this.index = index;
+  }
+}
 
 // core's runa11yCoreInPage, wrapped so an engine error (INVALID_RUN_ONLY,
 // INVALID_CONTEXT_SELECTOR) keeps its `code` across browser.execute(),
@@ -291,18 +308,20 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
     // `path` is the frame being scanned, as _scanChildFrames addresses it
     // ([] for the top-level page); the screenshots step needs it to reach
     // the frame again, and its parents.
-    const scanCurrent = async (scope, path) => {
-      const frameUrl = this._url || (await this._browser.execute(() => document.location.href));
+    const scanCurrent = async (scope, path, frameOptions = engineOptions) => {
+      // url() names the top page only; a frame is named by its own address.
+      const isTop = !Array.isArray(path) || path.length === 0;
+      const frameUrl = (isTop && this._url) || (await this._browser.execute(() => document.location.href));
       if (packScript) await this._browser.execute(packScript);
       // The text of the style sheets the frame can't read, fetched from Node
       // (binding-base 1.6.0 and core 1.14.0; nothing with older ones), in the frame
       // the browser is in.
-      const frameEngineOptions =
+      const scanOptions =
         typeof this._styleSheetEngineOptions === 'function'
-          ? await this._styleSheetEngineOptions(null, engineOptions)
-          : engineOptions;
+          ? await this._styleSheetEngineOptions(null, frameOptions)
+          : frameOptions;
       const result = rethrowEngineError(
-        await this._browser.execute(inPageScan, frameUrl, scope, frameEngineOptions, runOnly)
+        await this._browser.execute(inPageScan, frameUrl, scope, scanOptions, runOnly)
       );
       this._warnScanGaps(result, '@surea11y/webdriverio');
       // Element references first: they are resolved in the current frame,
@@ -332,9 +351,22 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
     const topFrame = this._applyReportOnly(await scanCurrent(contextSelector, []));
 
     // Sub-frames are scanned whole: the include() scope belongs to the top
-    // frame's document (see the class comment).
+    // frame's document (see the class comment). Each frame is read as core's
+    // own scan across frames reads it (binding-base's frames helpers, 1.7 and
+    // later): one the page doesn't show, that is excluded or outside
+    // include()'s roots, or that shows nothing is left out with its frames;
+    // one under aria-hidden is scanned as aria-hidden, and so are its frames.
+    // Frames in open shadow roots are found too.
     const frames = [];
-    await this._scanChildFrames([], (childPath) => scanCurrent(null, childPath), frames);
+    const readingOf = (topLevel) => (typeof frameReadingOptions === 'function'
+      ? frameReadingOptions(engineOptions, contextSelector, topLevel)
+      : null);
+    await this._scanChildFrames(
+      [],
+      (childPath, ariaHidden) => scanCurrent(null, childPath, frameEngineOptions(engineOptions, { ariaHidden })),
+      frames,
+      readingOf
+    );
 
     // Leave the browser back at the top-level frame regardless of how the
     // traversal ended, so a caller's next command isn't silently running in
@@ -445,24 +477,29 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
    * `switchFrame(childElement)` down the index path, re-querying the iframes
    * fresh at each hop.
    */
-  async _scanChildFrames(path, scanCurrent, out) {
+  async _scanChildFrames(path, scanCurrent, out, readingOf, ariaHiddenAbove = false) {
     let childCount;
+    let readings;
     try {
-      const iframes = await this._browser.$$('iframe');
+      const iframes = await this._frameElements();
       childCount = iframes.length;
+      readings = await this._readFrames(readingOf, path.length === 0);
     } catch (e) {
       return; // can't enumerate this context's children -- nothing to recurse into
     }
 
     for (let i = 0; i < childCount; i++) {
+      const reading = readings[i] || {};
+      if (reading.skipped) continue;
+      const ariaHidden = ariaHiddenAbove || !!reading.ariaHidden;
       let frameUrl = null;
       try {
         // Re-establish this context from the top, then step into child i with
         // a freshly re-queried element reference.
         await this._switchToPath(path);
-        const iframes = await this._browser.$$('iframe');
-        await this._browser.switchFrame(iframes[i]);
+        await this._switchIntoChild(i);
         frameUrl = await this._browser.execute(() => document.location.href);
+        if (await this._isCurrentFrameEmpty()) continue;
       } catch (e) {
         // A frame can detach/navigate away mid-scan, or be a sandboxed frame
         // the browser blocks switching into -- record it and move on rather
@@ -472,13 +509,13 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
       }
 
       try {
-        out.push(this._applyReportOnly(await scanCurrent(path.concat(i))));
+        out.push(this._applyReportOnly(await scanCurrent(path.concat(i), ariaHidden)));
       } catch (e) {
         out.push({ url: frameUrl, error: (e && e.message) || String(e) });
       }
 
       // We're currently switched into child i -- recurse into ITS children.
-      await this._scanChildFrames(path.concat(i), scanCurrent, out);
+      await this._scanChildFrames(path.concat(i), scanCurrent, out, readingOf, ariaHidden);
     }
   }
 
@@ -490,9 +527,68 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
    */
   async _switchToPath(path) {
     await this._browser.switchFrame(null);
-    for (const index of path) {
-      const iframes = await this._browser.$$('iframe');
-      await this._browser.switchFrame(iframes[index]);
+    for (const index of path) await this._switchIntoChild(index);
+  }
+
+  /**
+   * Switches into the frame at `index` among the current document's frames,
+   * as _frameElements() lists them.
+   */
+  async _switchIntoChild(index) {
+    const element = await this._frameElementAt(index);
+    if (!element) throw new Error(`no <iframe> ${index} where the frame was`);
+    await this._browser.switchFrame(element);
+  }
+
+  /**
+   * The <iframe> and <frame> elements of the current document, in document
+   * order, through open shadow roots (binding-base's findFrameElements), or
+   * its <iframe>s with an older binding-base.
+   */
+  async _frameElements() {
+    if (typeof findFrameElements !== 'function') return this._browser.$$('iframe');
+    return (await this._browser.execute(`return (${findFrameElements.toString()})(document);`)) || [];
+  }
+
+  /**
+   * The frame at `index` among the current document's frames, as an element
+   * switchFrame() takes (under BiDi, a WebdriverIO element rather than the
+   * bare reference execute() returns), or null.
+   */
+  async _frameElementAt(index) {
+    if (typeof findFrameElements !== 'function') return (await this._browser.$$('iframe'))[index] || null;
+    const ref = await this._browser.execute(
+      `return (${findFrameElements.toString()})(document)[arguments[0]] || null;`,
+      index
+    );
+    return ref ? this._browser.$(ref) : null;
+  }
+
+  /**
+   * How each frame of the current document is read, in _frameElements()'s
+   * order: `{ skipped }`, `{ ariaHidden }` or `{}`; none with an older
+   * binding-base, or when the page can't be asked.
+   */
+  async _readFrames(readingOf, topLevel) {
+    if (typeof readFrameElement !== 'function' || typeof findFrameElements !== 'function') return [];
+    try {
+      return (await this._browser.execute(
+        `const read = ${readFrameElement.toString()};` +
+          `return (${findFrameElements.toString()})(document).map((el) => read(el, arguments[0]));`,
+        readingOf(topLevel)
+      )) || [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  /** Whether the document the browser is switched into shows nothing. */
+  async _isCurrentFrameEmpty() {
+    if (typeof isFrameDocumentEmpty !== 'function') return false;
+    try {
+      return !!(await this._browser.execute(`return (${isFrameDocumentEmpty.toString()})(document);`));
+    } catch (e) {
+      return false;
     }
   }
 
@@ -525,7 +621,14 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
       }
       path = [];
     }
-    const framePath = path.map((index, depth) => ({ frame: path.slice(0, depth), iframe: { selector: 'iframe', index } }));
+    // Each step names its <iframe> by its place among its parent document's
+    // frames, as the traversal counts them (a frame in a shadow root has no
+    // index among the document's own <iframe>s); _evaluateInFrame() finds
+    // the element again there.
+    const framePath = path.map((index, depth) => ({
+      frame: path.slice(0, depth),
+      iframe: typeof findFrameElements === 'function' ? new FrameElementAt(index) : { selector: 'iframe', index }
+    }));
     try {
       await this._captureScreenshots(result, path, framePath);
     } finally {
@@ -537,7 +640,9 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
   async _evaluateInFrame(path, fn, args) {
     // null: the frame the browser is in, as Selenium's binding reads it.
     if (path !== null) await this._switchToPath(path);
-    return this._browser.execute(fn, ...args);
+    const given = [];
+    for (const arg of args) given.push(arg instanceof FrameElementAt ? await this._frameElementAt(arg.index) : arg);
+    return this._browser.execute(fn, ...given);
   }
 
   /**
