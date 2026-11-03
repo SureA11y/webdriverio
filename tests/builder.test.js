@@ -1434,3 +1434,60 @@ test('A11yCoreBuilder.conditions(): checks its list, and refuses frames(true) be
   assert.throws(() => builder.conditions([{ colorScheme: 'sepia' }]), TypeError);
   await assert.rejects(builder.conditions([{ width: 320 }]).frames(true).analyze(), /can't be combined yet/);
 });
+
+// How .frames(true) reads inert, modal-covered and slotted frames as core
+// does needs binding-base's inheritFrameReading and a core that takes
+// engineOptions.embeddedInert.
+const FRAME_INERT = (() => {
+  if (typeof require('@surea11y/binding-base').inheritFrameReading !== 'function') {
+    return 'needs a binding-base that reads inert frames';
+  }
+  try {
+    require('@surea11y/core/testing').runa11yCoreOnHtml('<p>x</p>', {
+      engineOptions: { embeddedInert: true, strictOptions: true },
+      runOnly: ['img-alt-present']
+    });
+    return false;
+  } catch {
+    return 'needs a core that takes embeddedInert';
+  }
+})();
+
+// A frame under inert, one slotted into a component whose slot is under
+// aria-hidden, one an open modal dialog covers, and one in the dialog.
+const INERT_FRAMES_PAGE = (() => {
+  const frame = (id) => `<iframe title="${id}" srcdoc="<html lang=en><title>${id}</title><img src=a.png>"></iframe>`;
+  return '<!doctype html><html lang="en"><head><title>Frames</title></head><body><main>' +
+    `<div inert>${frame('inert')}</div><x-wrap>${frame('slotted')}</x-wrap>${frame('covered')}` +
+    `<dialog id="d"><p>Cookies?</p>${frame('in-dialog')}</dialog></main>` +
+    '<script>document.querySelector("x-wrap").attachShadow({mode:"open"}).innerHTML=' +
+    '\'<div aria-hidden="true"><slot></slot></div>\';document.getElementById("d").showModal();</script>' +
+    '</body></html>';
+})();
+
+// With the dialog open, only the frame in it is scanned: the browser makes
+// everything else inert.
+function assertModalFramesRead(results) {
+  assert.deepStrictEqual(results.frames.map((f) => f.title || f.error), ['in-dialog']);
+}
+
+// With it closed, the frame under inert, and the one slotted under
+// aria-hidden, are scanned as such, and the one it covered as it is.
+function assertInertFramesRead(results) {
+  const titles = results.frames.map((f) => f.title || f.error);
+  assert.deepStrictEqual([...titles].sort(), ['covered', 'inert', 'slotted'], JSON.stringify(titles));
+  const img = (title) => results.frames.find((f) => f.title === title).checksResults.find((r) => r.ruleId === 'img-alt-present');
+  assert.notStrictEqual(img('inert') && img('inert').outcome, 'fail', 'a name is no rule of inert content');
+  assert.notStrictEqual(img('slotted') && img('slotted').outcome, 'fail', 'aria-hidden around the slot reaches the slotted frame');
+  assert.strictEqual(img('covered').outcome, 'fail', 'with the dialog closed, the frame is the page people reach');
+}
+
+test('A11yCoreBuilder: frames(true) leaves out a frame behind an open modal dialog, and scans one under inert, or slotted under aria-hidden, as such', { skip: FRAME_INERT }, async () => {
+  await browser.url('data:text/html,' + encodeURIComponent(INERT_FRAMES_PAGE));
+  await browser.waitUntil(() => browser.execute(
+    () => [...document.querySelectorAll('iframe')].every((f) => f.contentDocument && f.contentDocument.title)
+  ), { timeout: 10000, interval: 100 });
+  assertModalFramesRead(await new A11yCoreBuilder({ browser }).frames(true).analyze());
+  await browser.execute(() => document.getElementById('d').close());
+  assertInertFramesRead(await new A11yCoreBuilder({ browser }).frames(true).analyze());
+});

@@ -18,6 +18,12 @@ const {
   frameReadingOptions
 } = bindingBase;
 const frameEngineOptions = bindingBase.frameEngineOptions || ((engineOptions) => engineOptions);
+// What a frame is under, with what the frames around it are under
+// (binding-base 1.8 and later; aria-hidden and inert alike).
+const inheritFrameReading = bindingBase.inheritFrameReading || ((above, reading) => ({
+  ariaHidden: !!((above && above.ariaHidden) || (reading && reading.ariaHidden)),
+  inert: !!((above && above.inert) || (reading && reading.inert))
+}));
 
 // One step of a screenshot's frame path: the frame at `index` among its
 // parent document's frames, as _frameElements() lists them. Element
@@ -363,7 +369,7 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
       : null);
     await this._scanChildFrames(
       [],
-      (childPath, ariaHidden) => scanCurrent(null, childPath, frameEngineOptions(engineOptions, { ariaHidden })),
+      (childPath, under) => scanCurrent(null, childPath, frameEngineOptions(engineOptions, under)),
       frames,
       readingOf
     );
@@ -477,7 +483,7 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
    * `switchFrame(childElement)` down the index path, re-querying the iframes
    * fresh at each hop.
    */
-  async _scanChildFrames(path, scanCurrent, out, readingOf, ariaHiddenAbove = false) {
+  async _scanChildFrames(path, scanCurrent, out, readingOf, above = null) {
     let childCount;
     let readings;
     try {
@@ -491,7 +497,7 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
     for (let i = 0; i < childCount; i++) {
       const reading = readings[i] || {};
       if (reading.skipped) continue;
-      const ariaHidden = ariaHiddenAbove || !!reading.ariaHidden;
+      const under = inheritFrameReading(above, reading);
       let frameUrl = null;
       try {
         // Re-establish this context from the top, then step into child i with
@@ -509,13 +515,13 @@ class A11yCoreBuilder extends A11yCoreBuilderBase {
       }
 
       try {
-        out.push(this._applyReportOnly(await scanCurrent(path.concat(i), ariaHidden)));
+        out.push(this._applyReportOnly(await scanCurrent(path.concat(i), under)));
       } catch (e) {
         out.push({ url: frameUrl, error: (e && e.message) || String(e) });
       }
 
       // We're currently switched into child i -- recurse into ITS children.
-      await this._scanChildFrames(path.concat(i), scanCurrent, out, readingOf, ariaHidden);
+      await this._scanChildFrames(path.concat(i), scanCurrent, out, readingOf, under);
     }
   }
 
