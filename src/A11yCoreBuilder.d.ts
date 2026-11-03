@@ -178,7 +178,7 @@ export class A11yCoreBuilder {
   withTags(tags: string | string[]): this;
   /** Never run rules carrying any of these tags (applied after withTags). */
   disableTags(tags: string | string[]): this;
-  /** Only run these specific rule IDs (accepts with or without the  prefix). */
+  /** Only run these specific rule IDs (accepts with or without the `a11ycore-` prefix). */
   withRules(ruleIds: string | string[]): this;
   /** Never run these specific rule IDs (applied after withRules). */
   disableRules(ruleIds: string | string[]): this;

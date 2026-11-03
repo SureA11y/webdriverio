@@ -19,7 +19,7 @@ const {
 } = bindingBase;
 const frameEngineOptions = bindingBase.frameEngineOptions || ((engineOptions) => engineOptions);
 // What a frame is under, with what the frames around it are under
-// (binding-base 1.8 and later; aria-hidden and inert alike).
+// (binding-base 1.7 and later; aria-hidden and inert alike).
 const inheritFrameReading = bindingBase.inheritFrameReading || ((above, reading) => ({
   ariaHidden: !!((above && above.ariaHidden) || (reading && reading.ariaHidden)),
   inert: !!((above && above.inert) || (reading && reading.inert))
@@ -92,20 +92,20 @@ const inPageScan = createInPageScan(runa11yCoreInPage);
  * `browser.switchFrame(iframeElement)` changes which document
  * `browser.execute()`/`browser.$()` run against, and `browser.switchFrame(null)`
  * returns to the top-level frame. There is no array of frame objects. So
- * `.frames(true)` here works by enumerating each context's direct-child
- * `<iframe>` elements with `browser.$$('iframe')`, switching into each with
- * `browser.switchFrame(el)`, scanning the now-current document, then
- * recursing into that frame's own children before returning to the parent
- * context (re-entered by the context id `switchFrame()` handed back on the
- * way in). Cross-origin iframes are reached with no extra work -- the
+ * `.frames(true)` here works by listing each context's own `<iframe>` and
+ * `<frame>` elements, through open shadow roots (binding-base's
+ * findFrameElements), switching into each with `browser.switchFrame(el)`,
+ * scanning the now-current document, then recursing into that frame's own
+ * children (each context re-entered from the top by its index path; see
+ * _scanChildFrames). Cross-origin iframes are reached with no extra work -- the
  * WebDriver/BiDi automation layer switches into them the same as same-origin
  * ones, exactly like Puppeteer/Playwright's CDP does; verified against a
  * real cross-origin frame (`https://example.org/`).
  * Default off, so plain .analyze() keeps returning the single native result
  * object it always has.
  *
- * An include() scope applies to the top frame only: each sub-frame is
- * scanned whole (contextSelector null), as @surea11y/core's own
+ * An include() scope applies to the top frame only: each sub-frame inside
+ * its roots is scanned whole (contextSelector null), as @surea11y/core's own
  * runa11yCoreAcrossFrames does. Since core 1.10.0 a selector that matches
  * nothing scans nothing, so passing the top frame's scope down would leave
  * every frame that lacks it unscanned.
@@ -181,8 +181,9 @@ const inPageScan = createInPageScan(runa11yCoreInPage);
  * top of the first scan's scope rather than replacing it (intentional for
  * "call include() several times for one scan" -- see above -- but a footgun
  * if you hold one instance across multiple assertions).
- * reportOnly()/frames()/elementRef()/screenshots()/withWcag()/withBestPractices()
- * are the exception: each call replaces the previous value rather than
+ * reportOnly()/frames()/elementRef()/screenshots()/conditions()/
+ * fetchStyleSheets()/withWcag()/withBestPractices()/includeMode()/
+ * wcagLevel()/logger() are the exception: each call replaces the previous value rather than
  * merging with it.
  */
 class A11yCoreBuilder extends A11yCoreBuilderBase {
